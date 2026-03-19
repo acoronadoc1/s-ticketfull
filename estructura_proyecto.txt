@@ -1,0 +1,53 @@
+.
+├── backend-tickets
+│   ├── index.js
+│   ├── package-lock.json
+│   └── package.json
+├── estructura_proyecto.txt
+├── frontend
+│   ├── README.md
+│   ├── eslint.config.js
+│   ├── index.html
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── public
+│   │   └── vite.svg
+│   ├── src
+│   │   ├── App.jsx
+│   │   ├── assets
+│   │   │   └── react.svg
+│   │   ├── components
+│   │   │   └── Sidebar.jsx
+│   │   ├── index.css
+│   │   ├── main.jsx
+│   │   └── pages
+│   │       ├── Citas.jsx
+│   │       ├── Clientes.jsx
+│   │       ├── Cotizaciones.jsx
+│   │       ├── Dashboard.jsx
+│   │       ├── Estatusv.jsx
+│   │       ├── Facturas.jsx
+│   │       ├── Inventario.jsx
+│   │       ├── Login.jsx
+│   │       ├── Pagos.jsx
+│   │       ├── Registro.jsx
+│   │       └── Tecnicos.jsx
+│   └── vite.config.js
+└── mi-primer-react
+    ├── README.md
+    ├── eslint.config.js
+    ├── index.html
+    ├── package-lock.json
+    ├── package.json
+    ├── public
+    │   └── vite.svg
+    ├── src
+    │   ├── App.css
+    │   ├── App.jsx
+    │   ├── assets
+    │   │   └── react.svg
+    │   ├── index.css
+    │   └── main.jsx
+    └── vite.config.js
+
+12 directories, 39 files
