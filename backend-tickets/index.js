@@ -16,8 +16,8 @@ const dbConfig = {
   database: process.env.DB_NAME, // El nombre de la base de datos que creaste en SSMS
   port: parseInt(process.env.DB_PORT),
   options: {
-          encrypt: true, // VITAL PARA AZURE: Obliga a que los datos viajen encriptados
-          trustServerCertificate: false // VITAL PARA AZURE: Valida que el certificado de Microsoft sea real
+          encrypt: false, // VITAL PARA AZURE: Obliga a que los datos viajen encriptados
+          trustServerCertificate: true // VITAL PARA AZURE: Valida que el certificado de Microsoft sea real
   }
 };
 
@@ -441,7 +441,7 @@ app.get('/api/servicios', async (req, res) => {
   }
 });
 
-
+  
 // ==========================================
 // 📝 MÓDULO DE COTIZACIONES: GUARDAR NUEVA COTIZACIÓN
 // ==========================================
