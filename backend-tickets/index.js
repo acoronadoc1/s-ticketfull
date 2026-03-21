@@ -34,18 +34,18 @@ sql.connect(dbConfig)
 app.post('/sumar-clic', async (req, res) => { // 9. Define la ruta POST para recibir nuevos tickets
   try { // 10. Bloque de seguridad: intenta ejecutar el código, si falla va al catch
     let pool = await sql.connect(dbConfig); // 11. Abre el túnel de comunicación con SQL Server
-    
+
     // 12. Envía la orden de aumentar en 1 la cantidad del registro de 'Andy'
     await pool.request()
       .query("UPDATE RegistroClicks SET Cantidad = Cantidad + 1 WHERE Nombre = 'Andy'");
-    
+
     // 13. Vuelve a consultar a SQL para saber cuál es el nuevo número después de la suma
     let result = await pool.request()
       .query("SELECT Cantidad FROM RegistroClicks WHERE Nombre = 'Andy'");
 
     // 14. Envía la respuesta de vuelta al Frontend con el número real de la base de datos
-   res.json({ 
-    mensaje: 'Clic guardado exitosamente', 
+   res.json({
+    mensaje: 'Clic guardado exitosamente',
     nuevaCantidad: result.recordset[0].Cantidad // <--- Aquí definimos el nombre
 });
 
@@ -59,7 +59,7 @@ app.post('/sumar-clic', async (req, res) => { // 9. Define la ruta POST para rec
 app.post('/reiniciar-clic', async (req, res) => { // 18. Define la ruta para resetear el contador
   try {
     const pool = await sql.connect(dbConfig); // 19. Asegura la conexión usando las credenciales dbConfig
-    
+
     // 20. Envía la orden de poner la columna Cantidad en 0 para el usuario 'Andy'
     await pool.request().query("UPDATE RegistroClicks SET Cantidad = 0 WHERE Nombre = 'Andy'");
 
@@ -83,23 +83,23 @@ app.post('/api/login', async (req, res) => {
 
   try {
     const pool = await sql.connect(dbConfig);
-    
-    // Consultamos a la base de datos usando "Parámetros" (.input) 
+
+    // Consultamos a la base de datos usando "Parámetros" (.input)
     // Esto es VITAL para evitar hackeos por SQL Injection
     const result = await pool.request()
       .input('userParam', sql.VarChar, usuario)
       .input('passParam', sql.VarChar, password)
       .query(`
-        SELECT ID_USUARIO, ROL, ID_CLIENTE, ESTADO 
-        FROM USUARIOS 
-        WHERE NOMBRE_USUARIO = @userParam 
+        SELECT ID_USUARIO, ROL, ID_CLIENTE, ESTADO
+        FROM USUARIOS
+        WHERE NOMBRE_USUARIO = @userParam
           AND CLAVE = @passParam
       `);
 
     // Verificamos si SQL encontró a alguien con esas credenciales
     if (result.recordset.length > 0) {
       const usuarioDB = result.recordset[0];
-      
+
       // Verificamos que no esté despedido/dado de baja
       if (usuarioDB.ESTADO !== 'Activo') {
         return res.status(403).json({ success: false, mensaje: 'Usuario inactivo. Contacte al administrador.' });
@@ -112,7 +112,7 @@ app.post('/api/login', async (req, res) => {
         rol: usuarioDB.ROL,
         idCliente: usuarioDB.ID_CLIENTE
       });
-      
+
     } else {
       // Si la contraseña está mal o el usuario no existe, lo rebotamos
       res.status(401).json({ success: false, mensaje: 'Usuario o contraseña incorrectos.' });
@@ -135,7 +135,7 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/metricas', async (req, res) => {
   try {
     const pool = await sql.connect(dbConfig);
-    
+
     // 1️⃣ CONSULTA: Vehículos totales
     const vehiculosResult = await pool.request().query("SELECT COUNT(*) AS totalVehiculos FROM VEHICULOS");
     const cantidadVehiculos = vehiculosResult.recordset[0].totalVehiculos;
@@ -166,16 +166,16 @@ app.get('/api/metricas', async (req, res) => {
 // RUTA DEL GARAJE (VEHÍCULOS DEL CLIENTE)
 // ==========================================
 app.post('/api/garaje', async (req, res) => {
-  const { usuario } = req.body; 
+  const { usuario } = req.body;
 
   try {
     const pool = await sql.connect(dbConfig);
-    
+
     // Aquí está la corrección de la Ñ (V.AÑO AS ANIO)
     const result = await pool.request()
       .input('userParam', sql.VarChar, usuario)
       .query(`
-        SELECT V.MARCA, V.MODELO, V.AÑO AS ANIO, V.PLACA 
+        SELECT V.MARCA, V.MODELO, V.AÑO AS ANIO, V.PLACA
         FROM VEHICULOS V
         INNER JOIN USUARIOS U ON V.ID_CLIENTE = U.ID_CLIENTE
         WHERE U.NOMBRE_USUARIO = @userParam
@@ -201,7 +201,7 @@ app.post('/api/registro', async (req, res) => {
 
   try {
     const pool = await sql.connect(dbConfig);
-    
+
     // 2. Ejecutamos un bloque de SQL inteligente
     const result = await pool.request()
       .input('nombreParam', sql.VarChar, nombre)
@@ -219,17 +219,17 @@ app.post('/api/registro', async (req, res) => {
         BEGIN
             -- PASO B: Insertamos al Cliente en su tabla
             DECLARE @NuevoIdCliente INT;
-            
+
             INSERT INTO CLIENTES (NIT, NOMBRE_CLIENTE, TELEFONO)
             VALUES (@nitParam, @nombreParam, @telefonoParam);
-            
+
             -- PASO C: Capturamos el ID_CLIENTE que SQL le acaba de asignar automáticamente
             SET @NuevoIdCliente = SCOPE_IDENTITY();
-            
+
             -- PASO D: Creamos el Usuario y lo conectamos con ese ID_CLIENTE
             INSERT INTO USUARIOS (NOMBRE_USUARIO, CLAVE, ROL, ESTADO, ID_CLIENTE)
             VALUES (@usuarioParam, @passParam, 'Usuario', 'Activo', @NuevoIdCliente);
-            
+
             SELECT 'EXITO' AS Resultado;
         END
       `);
@@ -269,9 +269,9 @@ app.get('/api/citas/disponibles/:fecha', async (req, res) => {
       .input('fechaParam', sql.Date, fecha)
       .query(`
         -- Buscamos las citas de ese día que NO estén canceladas ni completadas
-        SELECT HORA_CITA 
-        FROM CITAS_WEB 
-        WHERE CAST(FECHA_CITA AS DATE) = @fechaParam 
+        SELECT HORA_CITA
+        FROM CITAS_WEB
+        WHERE CAST(FECHA_CITA AS DATE) = @fechaParam
         AND ESTADO = 'Agendada'
       `);
 
@@ -299,7 +299,7 @@ app.post('/api/citas', async (req, res) => {
 
   try {
     const pool = await sql.connect(dbConfig);
-    
+
     // 1. 🔍 Buscamos los datos reales del cliente en la DB
     const datosCliente = await pool.request()
       .input('idCP', sql.Int, id_cliente)
@@ -316,7 +316,7 @@ app.post('/api/citas', async (req, res) => {
       .input('fechaParam', sql.Date, fecha)
       .input('horaParam', sql.VarChar, hora)
       .query(`SELECT 1 FROM CITAS_WEB WHERE CAST(FECHA_CITA AS DATE) = @fechaParam AND HORA_CITA = @horaParam AND ESTADO = 'Agendada'`);
-      
+
     if (check.recordset.length > 0) {
       return res.status(400).json({ success: false, mensaje: 'Este horario acaba de ser ocupado.' });
     }
@@ -331,9 +331,9 @@ app.post('/api/citas', async (req, res) => {
       .input('horaParam', sql.VarChar, hora)
       .input('motivoParam', sql.VarChar, motivo)
       .query(`
-        INSERT INTO CITAS_WEB 
+        INSERT INTO CITAS_WEB
         (ID_CLIENTE, NOMBRE_CONTACTO, TELEFONO_CONTACTO, PLACA, FECHA_CITA, HORA_CITA, MOTIVO_CITA, FECHA_CREACION, ESTADO)
-        VALUES 
+        VALUES
         (@idClienteParam, @nomContacto, @telContacto, @placaParam, @fechaParam, @horaParam, @motivoParam, GETDATE(), 'Agendada')
       `);
 
@@ -361,8 +361,8 @@ app.get('/api/vehiculos/cliente/:id', async (req, res) => {
       .input('idClienteParam', sql.Int, idCliente)
       .query(`
         -- Usamos [AÑO] porque así se llama tu columna en SQL Server
-        SELECT PLACA, MARCA, MODELO, [AÑO], COLOR 
-        FROM VEHICULOS 
+        SELECT PLACA, MARCA, MODELO, [AÑO], COLOR
+        FROM VEHICULOS
         WHERE ID_CLIENTE = @idClienteParam
       `);
 
@@ -402,7 +402,7 @@ app.post('/api/vehiculos', async (req, res) => {
       .input('placaParam', sql.VarChar, placa)
       .input('marcaParam', sql.VarChar, marca)
       .input('modeloParam', sql.VarChar, modelo)
-      .input('anioParam', sql.Int, anio) 
+      .input('anioParam', sql.Int, anio)
       .input('colorParam', sql.VarChar, color)
       .input('idClienteParam', sql.Int, id_cliente)
       .query(`
@@ -429,11 +429,11 @@ app.get('/api/servicios', async (req, res) => {
     const pool = await sql.connect(dbConfig);
     // 🟢 Corrección: Usamos PRECIO_BASE AS PRECIO para que React no falle
     const result = await pool.request().query(`
-      SELECT ID_SERVICIO, NOMBRE_SERVICIO, PRECIO_BASE AS PRECIO, DESCRIPCION 
+      SELECT ID_SERVICIO, NOMBRE_SERVICIO, PRECIO_BASE AS PRECIO, DESCRIPCION
       FROM CATALOGO_SERVICIOS
       WHERE ESTADO = 'Activo'
     `);
-    
+
     res.json({ success: true, servicios: result.recordset });
   } catch (err) {
     console.error("❌ Error al obtener catálogo de servicios:", err);
@@ -441,7 +441,7 @@ app.get('/api/servicios', async (req, res) => {
   }
 });
 
-  
+
 // ==========================================
 // 📝 MÓDULO DE COTIZACIONES: GUARDAR NUEVA COTIZACIÓN
 // ==========================================
@@ -457,7 +457,7 @@ app.post('/api/cotizaciones', async (req, res) => {
       const precioResult = await pool.request()
         .input('idServicio', sql.Int, paqueteId)
         .query("SELECT PRECIO_BASE FROM CATALOGO_SERVICIOS WHERE ID_SERVICIO = @idServicio");
-      
+
       if (precioResult.recordset.length > 0) {
         totalEstimado = precioResult.recordset[0].PRECIO_BASE;
       }
@@ -466,8 +466,8 @@ app.post('/api/cotizaciones', async (req, res) => {
     await pool.request()
       .input('idClienteParam', sql.Int, idCliente)
       .input('placaParam', sql.VarChar, placa)
-      .input('idServicioParam', sql.Int, paqueteId || null) 
-      .input('observacionesParam', sql.VarChar, fallaDescripcion || '') 
+      .input('idServicioParam', sql.Int, paqueteId || null)
+      .input('observacionesParam', sql.VarChar, fallaDescripcion || '')
       .input('totalParam', sql.Decimal(10, 2), totalEstimado)
       .query(`
         INSERT INTO COTIZACIONES (ID_CLIENTE, PLACA, ID_SERVICIO, OBSERVACIONES, TOTAL_ESTIMADO)
@@ -481,6 +481,156 @@ app.post('/api/cotizaciones', async (req, res) => {
   }
 });
 
+// ==========================================
+// 📦 MÓDULO DE INVENTARIO
+// ==========================================
+app.get('/api/inventario', async (req, res) => {
+    try {
+        const pool = await sql.connect(dbConfig);
+        const result = await pool.request().query("SELECT * FROM INVENTARIO");
+        res.json(result.recordset);
+    } catch (err) {
+        res.status(500).json({ error: "Error al leer inventario" });
+    }
+});
+
+app.post('/api/inventario', async (req, res) => {
+    const { NOMBRE_ITEM, STOCK_ACTUAL, PRECIO_COSTO, PRECIO_VENTA } = req.body;
+    try {
+        const pool = await sql.connect(dbConfig);
+        await pool.request()
+            .input('nombre', sql.VarChar, NOMBRE_ITEM)
+            .input('stock', sql.Int, STOCK_ACTUAL)
+            .input('costo', sql.Decimal(10, 2), PRECIO_COSTO)
+            .input('venta', sql.Decimal(10, 2), PRECIO_VENTA)
+            .query(`
+                INSERT INTO INVENTARIO (NOMBRE_ITEM, STOCK_ACTUAL, PRECIO_COSTO, PRECIO_VENTA)
+                VALUES (@nombre, @stock, @costo, @venta)
+            `);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: "Error al guardar en inventario" });
+    }
+});
+
+// 4. Actualizar stock manualmente
+app.put('/api/inventario/stock/:id', async (req, res) => {
+  const { nuevoStock } = req.body;
+  try {
+    const pool = await sql.connect(dbConfig);
+    await pool.request()
+      .input('id', sql.Int, req.params.id)
+      .input('stock', sql.Int, nuevoStock)
+      .query("UPDATE INVENTARIO SET STOCK_ACTUAL = @stock WHERE ID_ITEM = @id");
+    res.json({ success: true, mensaje: "Stock actualizado" });
+  } catch (err) {
+    res.status(500).json({ error: "Error al actualizar stock" });
+  }
+});
+
+// ==========================================
+// 🛠️ MÓDULO TÉCNICOS Y SEGUIMIENTO
+// ==========================================
+
+// 1. Cargar Listas iniciales (Solo pendientes y libres)
+app.get('/api/tecnicos/datos-iniciales', async (req, res) => {
+  try {
+    const pool = await sql.connect(dbConfig);
+    const ordenes = await pool.request().query("SELECT ID_ORDEN, PLACA FROM ORDENES_TRABAJO WHERE ESTADO = 'Pendiente'");
+    const mecanicos = await pool.request().query("SELECT ID_MECANICO, NOMBRE_MECANICO FROM MECANICOS WHERE ESTADO = 'libre'");
+    const servicios = await pool.request().query("SELECT ID_SERVICIO, NOMBRE_SERVICIO, PRECIO_BASE FROM CATALOGO_SERVICIOS WHERE ESTADO = 'Activo'");
+
+    res.json({
+      ordenes: ordenes.recordset,
+      mecanicos: mecanicos.recordset,
+      servicios: servicios.recordset
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Asignar Trabajo (Múltiples servicios y mecánicos)
+app.post('/api/tecnicos/asignar', async (req, res) => {
+  const { idOrden, idsServicios, idsMecanicos } = req.body;
+  try {
+    const pool = await sql.connect(dbConfig);
+    for (const idServ of idsServicios) {
+      const resServ = await pool.request().query(`SELECT PRECIO_BASE FROM CATALOGO_SERVICIOS WHERE ID_SERVICIO = ${idServ}`);
+      const precio = resServ.recordset[0].PRECIO_BASE;
+
+      for (const idMec of idsMecanicos) {
+        await pool.request()
+          .input('idO', sql.Int, idOrden)
+          .input('idS', sql.Int, idServ)
+          .input('idM', sql.Int, idMec)
+          .input('p', sql.Decimal(10, 2), precio)
+          .query(`INSERT INTO DETALLE_ORDEN_SERVICIOS (ID_ORDEN, ID_SERVICIO, ID_MECANICO, PRECIO_COBRADO, ESTADO)
+                  VALUES (@idO, @idS, @idM, @p, 'En Proceso')`);
+      }
+    }
+    await pool.request().query(`UPDATE MECANICOS SET ESTADO = 'ocupado' WHERE ID_MECANICO IN (${idsMecanicos.join(',')})`);
+    await pool.request().query(`UPDATE ORDENES_TRABAJO SET ESTADO = 'En Proceso' WHERE ID_ORDEN = ${idOrden}`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Ver Trabajo ACTUAL (En Proceso)
+app.get('/api/tecnicos/trabajo-actual', async (req, res) => {
+  try {
+    const pool = await sql.connect(dbConfig);
+    const result = await pool.request().query(`
+      SELECT
+        D.ID_DETALLE_SRV,
+        D.ID_ORDEN,
+        D.ID_MECANICO,
+        O.PLACA,
+        S.NOMBRE_SERVICIO,
+        M.NOMBRE_MECANICO,
+        D.ESTADO -- Traemos el estado directamente de la tabla detalle
+      FROM DETALLE_ORDEN_SERVICIOS D
+      JOIN ORDENES_TRABAJO O ON D.ID_ORDEN = O.ID_ORDEN
+      JOIN CATALOGO_SERVICIOS S ON D.ID_SERVICIO = S.ID_SERVICIO
+      JOIN MECANICOS M ON D.ID_MECANICO = M.ID_MECANICO
+      WHERE UPPER(D.ESTADO) = 'EN PROCESO' -- Usamos UPPER para evitar errores de mayúsculas
+    `);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Finalizar Tarea y Liberar Mecánico
+app.put('/api/tecnicos/finalizar', async (req, res) => {
+  const { ID_DETALLE_SRV, ID_MECANICO } = req.body;
+  try {
+    const pool = await sql.connect(dbConfig);
+    await pool.request().query(`UPDATE DETALLE_ORDEN_SERVICIOS SET ESTADO = 'Finalizado' WHERE ID_DETALLE_SRV = ${ID_DETALLE_SRV}`);
+    await pool.request().query(`UPDATE MECANICOS SET ESTADO = 'libre' WHERE ID_MECANICO = ${ID_MECANICO}`);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. Historial de Trabajos Finalizados
+app.get('/api/tecnicos/historial', async (req, res) => {
+  try {
+    const pool = await sql.connect(dbConfig);
+    const result = await pool.request().query(`
+      SELECT D.ID_ORDEN, O.PLACA, S.NOMBRE_SERVICIO, M.NOMBRE_MECANICO, D.PRECIO_COBRADO
+      FROM DETALLE_ORDEN_SERVICIOS D
+      JOIN ORDENES_TRABAJO O ON D.ID_ORDEN = O.ID_ORDEN
+      JOIN CATALOGO_SERVICIOS S ON D.ID_SERVICIO = S.ID_SERVICIO
+      JOIN MECANICOS M ON D.ID_MECANICO = M.ID_MECANICO
+      WHERE D.ESTADO = 'Finalizado'`);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 
 
