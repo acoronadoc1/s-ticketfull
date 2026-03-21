@@ -1,494 +1,231 @@
-require('dotenv').config(); // 1. Carga las variables del archivo .env para proteger datos sensibles
+require('dotenv').config();
 
-const express =require('express'); //El moto del servidor web
-const cors = require ('cors') // el portero que permite que el front hable con el back
-const sql = require('mssql'); // 4. Importa el conector oficial para hablar con Microsoft SQL Server
+const express = require('express');
+const cors = require('cors');
+const sql = require('mssql');
 
-const app = express(); // 5. Crea la instancia de la aplicación "app" que controlará las rutas
-app.use(cors()); // 6. Middleware: Activa el permiso de comunicación entre diferentes puertos
-app.use(express.json()); // 7. Middleware: Permite que el servidor lea y entienda paquetes de datos en formato JSON
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-// 8. Objeto de configuración con las "llaves" de acceso a tu SQL Server
+// -----------------------------------------------------
+// ⚙️ CONFIGURACIÓN DE LA BASE DE DATOS
+// -----------------------------------------------------
 const dbConfig = {
-  user:process.env.DB_USER, // Usuario administrador de SQL
-  password:process.env.DB_PASSWORD, // Contraseña que definiste en la instalación
-  server: process.env.DB_SERVER, // La dirección IP donde vive tu base de datos (tu Windows)
-  database: process.env.DB_NAME, // El nombre de la base de datos que creaste en SSMS
+  user: process.env.DB_USER, 
+  password: process.env.DB_PASSWORD, 
+  server: process.env.DB_SERVER, 
+  database: process.env.DB_NAME, 
   port: parseInt(process.env.DB_PORT),
   options: {
-          encrypt: false, // VITAL PARA AZURE: Obliga a que los datos viajen encriptados
-          trustServerCertificate: true // VITAL PARA AZURE: Valida que el certificado de Microsoft sea real
+    encrypt: false, 
+    trustServerCertificate: true 
   }
 };
 
-//Intento de conexion validarcl
+// Conexión inicial
 sql.connect(dbConfig)
-  .then (() => {
-      console.log("Exito, conectado a Azure SQL")
-  })
-  .catch((err) =>{
-    console.error("Error de conexion a la nube:", err)
-  });
+  .then(() => console.log("✅ Conectado exitosamente a SQL Server"))
+  .catch((err) => console.error("❌ Error de conexión:", err));
 
-// --- RUTA 1: SUMAR UN TICKET ---
-app.post('/sumar-clic', async (req, res) => { // 9. Define la ruta POST para recibir nuevos tickets
-  try { // 10. Bloque de seguridad: intenta ejecutar el código, si falla va al catch
-    let pool = await sql.connect(dbConfig); // 11. Abre el túnel de comunicación con SQL Server
-    
-    // 12. Envía la orden de aumentar en 1 la cantidad del registro de 'Andy'
-    await pool.request()
-      .query("UPDATE RegistroClicks SET Cantidad = Cantidad + 1 WHERE Nombre = 'Andy'");
-    
-    // 13. Vuelve a consultar a SQL para saber cuál es el nuevo número después de la suma
-    let result = await pool.request()
-      .query("SELECT Cantidad FROM RegistroClicks WHERE Nombre = 'Andy'");
-
-    // 14. Envía la respuesta de vuelta al Frontend con el número real de la base de datos
-   res.json({ 
-    mensaje: 'Clic guardado exitosamente', 
-    nuevaCantidad: result.recordset[0].Cantidad // <--- Aquí definimos el nombre
-});
-
-  } catch (err) { // 15. Si algo sale mal (ej: SQL apagado), entra aquí
-    console.error("❌ Error en la base de datos:", err); // 16. Muestra el error técnico en tu terminal
-    res.status(500).send("Hubo un error al guardar el clic"); // 17. Le avisa al navegador que hubo un error interno
-  }
-});
-
-// --- RUTA 2: REINICIAR CONTADOR ---
-app.post('/reiniciar-clic', async (req, res) => { // 18. Define la ruta para resetear el contador
-  try {
-    const pool = await sql.connect(dbConfig); // 19. Asegura la conexión usando las credenciales dbConfig
-    
-    // 20. Envía la orden de poner la columna Cantidad en 0 para el usuario 'Andy'
-    await pool.request().query("UPDATE RegistroClicks SET Cantidad = 0 WHERE Nombre = 'Andy'");
-
-    // 21. Responde al Frontend confirmando que el nuevo valor es 0
-    res.json({ mensaje: "Contador reiniciado en SQL", nuevaCantidad: 0 });
-  } catch (err) {
-    console.error("Error al reiniciar en SQL:", err); // 22. Log de error para el programador
-    res.status(500).send("Error del servidor"); // 23. Respuesta de error para el cliente
-  }
-});
-
-
-
-
-// ==========================================
-// RUTA DE LOGIN (EL CADENERO DEL ERP)
-// ==========================================
+// =====================================================
+// 🔑 MÓDULO: SEGURIDAD (LOGIN)
+// =====================================================
 app.post('/api/login', async (req, res) => {
-  // Recibimos los datos que el usuario escribió en la pantalla de React
   const { usuario, password } = req.body;
-
   try {
     const pool = await sql.connect(dbConfig);
-    
-    // Consultamos a la base de datos usando "Parámetros" (.input) 
-    // Esto es VITAL para evitar hackeos por SQL Injection
     const result = await pool.request()
-      .input('userParam', sql.VarChar, usuario)
-      .input('passParam', sql.VarChar, password)
-      .query(`
-        SELECT ID_USUARIO, ROL, ID_CLIENTE, ESTADO 
-        FROM USUARIOS 
-        WHERE NOMBRE_USUARIO = @userParam 
-          AND CLAVE = @passParam
-      `);
+      .input('u', sql.VarChar, usuario)
+      .input('p', sql.VarChar, password)
+      .query("SELECT ID_USUARIO, ROL, ID_CLIENTE, ESTADO FROM USUARIOS WHERE NOMBRE_USUARIO = @u AND CLAVE = @p");
 
-    // Verificamos si SQL encontró a alguien con esas credenciales
     if (result.recordset.length > 0) {
-      const usuarioDB = result.recordset[0];
-      
-      // Verificamos que no esté despedido/dado de baja
-      if (usuarioDB.ESTADO !== 'Activo') {
-        return res.status(403).json({ success: false, mensaje: 'Usuario inactivo. Contacte al administrador.' });
-      }
-
-      // Si todo está perfecto, le damos luz verde
-      res.json({
-        success: true,
-        mensaje: 'Bienvenido al ERP',
-        rol: usuarioDB.ROL,
-        idCliente: usuarioDB.ID_CLIENTE
-      });
-      
+      const u = result.recordset[0];
+      if (u.ESTADO !== 'Activo') return res.status(403).json({ success: false, mensaje: 'Usuario inactivo.' });
+      res.json({ success: true, rol: u.ROL, idCliente: u.ID_CLIENTE });
     } else {
-      // Si la contraseña está mal o el usuario no existe, lo rebotamos
-      res.status(401).json({ success: false, mensaje: 'Usuario o contraseña incorrectos.' });
+      res.status(401).json({ success: false, mensaje: 'Credenciales inválidas.' });
     }
-
-  } catch (err) {
-    console.error("❌ Error en el Login:", err);
-    res.status(500).json({ success: false, mensaje: 'Error interno del servidor.' });
-  }
+  } catch (err) { res.status(500).json({ success: false }); }
 });
 
-
-
-
-
-
-// ==========================================
-// RUTA DE MÉTRICAS (EL CEREBRO DEL DASHBOARD)
-// ==========================================
+// =====================================================
+// 📈 MÓDULO: DASHBOARD (MÉTRICAS Y GARAJE)
+// =====================================================
 app.get('/api/metricas', async (req, res) => {
   try {
     const pool = await sql.connect(dbConfig);
-    
-    // 1️⃣ CONSULTA: Vehículos totales
-    const vehiculosResult = await pool.request().query("SELECT COUNT(*) AS totalVehiculos FROM VEHICULOS");
-    const cantidadVehiculos = vehiculosResult.recordset[0].totalVehiculos;
-
-    // 2️⃣ CONSULTA: Citas de hoy (Corregido a FECHA_CITA gracias a tu captura)
-    const citasResult = await pool.request()
-      .query("SELECT COUNT(*) AS citasHoy FROM CITAS_WEB WHERE CAST(FECHA_CITA AS DATE) = CAST(GETDATE() AS DATE)");
-    const cantidadCitas = citasResult.recordset[0].citasHoy;
-
-    // 3️⃣ CONSULTA: Facturado este mes (Corregido a FECHA_FACTURACION gracias a tu captura)
-    const facturasResult = await pool.request()
-      .query("SELECT SUM(TOTAL) AS totalFacturado FROM FACTURAS WHERE MONTH(FECHA_FACTURACION) = MONTH(GETDATE()) AND YEAR(FECHA_FACTURACION) = YEAR(GETDATE())");
-    const dineroFacturado = facturasResult.recordset[0].totalFacturado || 0;
-
-    res.json({ success: true, vehiculos: cantidadVehiculos, citas: cantidadCitas, facturado: dineroFacturado });
-
-  } catch (err) {
-    console.error("❌ Error al obtener las métricas:", err);
-    res.status(500).json({ success: false, mensaje: 'Error al calcular métricas.' });
-  }
+    const veh = await pool.request().query("SELECT COUNT(*) AS total FROM VEHICULOS");
+    const cit = await pool.request().query("SELECT COUNT(*) AS total FROM CITAS_WEB WHERE CAST(FECHA_CITA AS DATE) = CAST(GETDATE() AS DATE)");
+    const fac = await pool.request().query("SELECT SUM(TOTAL) AS total FROM FACTURAS WHERE MONTH(FECHA_FACTURACION) = MONTH(GETDATE())");
+    res.json({ success: true, vehiculos: veh.recordset[0].total, citas: cit.recordset[0].total, facturado: fac.recordset[0].total || 0 });
+  } catch (err) { res.status(500).json({ success: false }); }
 });
 
-
-
-
-
-// ==========================================
-// RUTA DEL GARAJE (VEHÍCULOS DEL CLIENTE)
-// ==========================================
 app.post('/api/garaje', async (req, res) => {
-  const { usuario } = req.body; 
-
+  const { idCliente } = req.body; 
+  if (!idCliente) return res.status(400).json({ success: false, mensaje: "ID no proporcionado." });
   try {
     const pool = await sql.connect(dbConfig);
-    
-    // Aquí está la corrección de la Ñ (V.AÑO AS ANIO)
-    const result = await pool.request()
-      .input('userParam', sql.VarChar, usuario)
-      .query(`
-        SELECT V.MARCA, V.MODELO, V.AÑO AS ANIO, V.PLACA 
-        FROM VEHICULOS V
-        INNER JOIN USUARIOS U ON V.ID_CLIENTE = U.ID_CLIENTE
-        WHERE U.NOMBRE_USUARIO = @userParam
-      `);
-
+    const result = await pool.request().input('id', sql.Int, idCliente)
+      .query(`SELECT V.PLACA, V.MARCA, V.MODELO, ISNULL((SELECT TOP 1 ESTADO FROM ORDENES_TRABAJO WHERE PLACA = V.PLACA ORDER BY ID_ORDEN DESC), 'Sin ingreso activo') AS ESTADO_ACTUAL FROM VEHICULOS V WHERE V.ID_CLIENTE = @id`);
     res.json({ success: true, vehiculos: result.recordset });
-
-  } catch (err) {
-    console.error("❌ Error al obtener el garaje:", err);
-    res.status(500).json({ success: false, mensaje: 'Error al buscar vehículos.' });
-  }
+  } catch (err) { res.status(500).json({ success: false }); }
 });
 
-
-
-
-// ==========================================
-// RUTA DE REGISTRO (CREACIÓN DE CLIENTES)
-// ==========================================
-app.post('/api/registro', async (req, res) => {
-  // 1. Recibimos el paquete de datos desde el formulario de React
-  const { nombre, nit, telefono, usuario, password } = req.body;
-
-  try {
-    const pool = await sql.connect(dbConfig);
-    
-    // 2. Ejecutamos un bloque de SQL inteligente
-    const result = await pool.request()
-      .input('nombreParam', sql.VarChar, nombre)
-      .input('nitParam', sql.VarChar, nit || '') // Si dejaron el NIT vacío, mandamos texto en blanco
-      .input('telefonoParam', sql.VarChar, telefono)
-      .input('usuarioParam', sql.VarChar, usuario)
-      .input('passParam', sql.VarChar, password)
-      .query(`
-        -- PASO A: Revisamos si alguien ya usa ese nombre de usuario
-        IF EXISTS (SELECT 1 FROM USUARIOS WHERE NOMBRE_USUARIO = @usuarioParam)
-        BEGIN
-            SELECT 'ERROR_EXISTE' AS Resultado;
-        END
-        ELSE
-        BEGIN
-            -- PASO B: Insertamos al Cliente en su tabla
-            DECLARE @NuevoIdCliente INT;
-            
-            INSERT INTO CLIENTES (NIT, NOMBRE_CLIENTE, TELEFONO)
-            VALUES (@nitParam, @nombreParam, @telefonoParam);
-            
-            -- PASO C: Capturamos el ID_CLIENTE que SQL le acaba de asignar automáticamente
-            SET @NuevoIdCliente = SCOPE_IDENTITY();
-            
-            -- PASO D: Creamos el Usuario y lo conectamos con ese ID_CLIENTE
-            INSERT INTO USUARIOS (NOMBRE_USUARIO, CLAVE, ROL, ESTADO, ID_CLIENTE)
-            VALUES (@usuarioParam, @passParam, 'Usuario', 'Activo', @NuevoIdCliente);
-            
-            SELECT 'EXITO' AS Resultado;
-        END
-      `);
-
-    const estado = result.recordset[0].Resultado;
-
-    // 3. Le respondemos al Frontend dependiendo de lo que dijo SQL
-    if (estado === 'ERROR_EXISTE') {
-      return res.status(400).json({ success: false, mensaje: 'El nombre de usuario ya está ocupado. Elige otro.' });
-    }
-
-    // ¡Luz verde! Esto activará el redireccionamiento en React
-    res.json({ success: true, mensaje: 'Cuenta creada exitosamente.' });
-
-  } catch (err) {
-    console.error("❌ Error al registrar usuario:", err);
-    res.status(500).json({ success: false, mensaje: 'Error al procesar el registro en la base de datos.' });
-  }
-});
-
-
-
-
-
-
-
-
-// ==========================================
-// 📅 MÓDULO DE CITAS: OBTENER HORARIOS OCUPADOS
-// ==========================================
-app.get('/api/citas/disponibles/:fecha', async (req, res) => {
-  const fecha = req.params.fecha; // El frontend nos mandará algo como '2026-10-20'
-
-  try {
-    const pool = await sql.connect(dbConfig);
-    const result = await pool.request()
-      .input('fechaParam', sql.Date, fecha)
-      .query(`
-        -- Buscamos las citas de ese día que NO estén canceladas ni completadas
-        SELECT HORA_CITA 
-        FROM CITAS_WEB 
-        WHERE CAST(FECHA_CITA AS DATE) = @fechaParam 
-        AND ESTADO = 'Agendada'
-      `);
-
-    // Extraemos solo las horas y las metemos en un arreglo (Ej: ['10:00 AM', '03:00 PM'])
-    const horasOcupadas = result.recordset.map(cita => cita.HORA_CITA);
-
-    res.json({ success: true, ocupadas: horasOcupadas });
-  } catch (err) {
-    console.error("❌ Error al consultar disponibilidad:", err);
-    res.status(500).json({ success: false, mensaje: 'Error al consultar fechas.' });
-  }
-});
-
-
-
-
-
-
-
-// ==========================================
-// 📅 MÓDULO DE CITAS: GUARDAR NUEVA CITA
-// ==========================================
-app.post('/api/citas', async (req, res) => {
-  const { id_cliente, placa, fecha, hora, motivo } = req.body;
-
-  try {
-    const pool = await sql.connect(dbConfig);
-    
-    // 1. 🔍 Buscamos los datos reales del cliente en la DB
-    const datosCliente = await pool.request()
-      .input('idCP', sql.Int, id_cliente)
-      .query("SELECT NOMBRE_CLIENTE, TELEFONO FROM CLIENTES WHERE ID_CLIENTE = @idCP");
-
-    if (datosCliente.recordset.length === 0) {
-      return res.status(404).json({ success: false, mensaje: 'Cliente no encontrado.' });
-    }
-
-    const { NOMBRE_CLIENTE, TELEFONO } = datosCliente.recordset[0];
-
-    // 2. Verificamos disponibilidad (esto se queda igual)
-    const check = await pool.request()
-      .input('fechaParam', sql.Date, fecha)
-      .input('horaParam', sql.VarChar, hora)
-      .query(`SELECT 1 FROM CITAS_WEB WHERE CAST(FECHA_CITA AS DATE) = @fechaParam AND HORA_CITA = @horaParam AND ESTADO = 'Agendada'`);
-      
-    if (check.recordset.length > 0) {
-      return res.status(400).json({ success: false, mensaje: 'Este horario acaba de ser ocupado.' });
-    }
-
-    // 3. ✅ INSERT Final con datos REALES del cliente
-    await pool.request()
-      .input('idClienteParam', sql.Int, id_cliente)
-      .input('nomContacto', sql.VarChar, NOMBRE_CLIENTE) // Jala el nombre real de la DB
-      .input('telContacto', sql.VarChar, TELEFONO)       // Jala el teléfono real de la DB
-      .input('placaParam', sql.VarChar, placa)
-      .input('fechaParam', sql.Date, fecha)
-      .input('horaParam', sql.VarChar, hora)
-      .input('motivoParam', sql.VarChar, motivo)
-      .query(`
-        INSERT INTO CITAS_WEB 
-        (ID_CLIENTE, NOMBRE_CONTACTO, TELEFONO_CONTACTO, PLACA, FECHA_CITA, HORA_CITA, MOTIVO_CITA, FECHA_CREACION, ESTADO)
-        VALUES 
-        (@idClienteParam, @nomContacto, @telContacto, @placaParam, @fechaParam, @horaParam, @motivoParam, GETDATE(), 'Agendada')
-      `);
-
-    res.json({ success: true, mensaje: 'Cita agendada exitosamente.' });
-  } catch (err) {
-    console.error("❌ Error al guardar cita:", err);
-    res.status(500).json({ success: false, mensaje: 'Error al procesar la cita.' });
-  }
-});
-
-
-
-
-
-
-// ==========================================
-// 🚗 MÓDULO DE CITAS: OBTENER VEHÍCULOS DEL CLIENTE
-// ==========================================
+// =====================================================
+// 🚗 MÓDULO: VEHÍCULOS (GESTIÓN)
+// =====================================================
 app.get('/api/vehiculos/cliente/:id', async (req, res) => {
-  const idCliente = req.params.id;
-
   try {
     const pool = await sql.connect(dbConfig);
-    const result = await pool.request()
-      .input('idClienteParam', sql.Int, idCliente)
-      .query(`
-        -- Usamos [AÑO] porque así se llama tu columna en SQL Server
-        SELECT PLACA, MARCA, MODELO, [AÑO], COLOR 
-        FROM VEHICULOS 
-        WHERE ID_CLIENTE = @idClienteParam
-      `);
-
+    const result = await pool.request().input('id', sql.Int, req.params.id).query("SELECT * FROM VEHICULOS WHERE ID_CLIENTE = @id");
     res.json({ success: true, vehiculos: result.recordset });
-  } catch (err) {
-    console.error("❌ Error al buscar vehículos:", err);
-    res.status(500).json({ success: false, mensaje: 'Error al consultar los vehículos del cliente.' });
-  }
+  } catch (err) { res.status(500).json({ success: false }); }
 });
 
-
-
-
-
-
-
-// ==========================================
-// 🚗 MÓDULO DE CITAS: REGISTRAR NUEVO VEHÍCULO (DESDE EL MODAL)
-// ==========================================
 app.post('/api/vehiculos', async (req, res) => {
   const { placa, marca, modelo, anio, color, id_cliente } = req.body;
-
   try {
     const pool = await sql.connect(dbConfig);
-
-    // 1. Validamos que la placa no exista ya
-    const check = await pool.request()
-      .input('placaParam', sql.VarChar, placa)
-      .query('SELECT 1 FROM VEHICULOS WHERE PLACA = @placaParam');
-
-    if (check.recordset.length > 0) {
-      return res.status(400).json({ success: false, mensaje: 'Esta placa ya está registrada en el sistema.' });
-    }
-
-    // 2. Insertamos el vehículo nuevo usando [AÑO]
     await pool.request()
-      .input('placaParam', sql.VarChar, placa)
-      .input('marcaParam', sql.VarChar, marca)
-      .input('modeloParam', sql.VarChar, modelo)
-      .input('anioParam', sql.Int, anio) 
-      .input('colorParam', sql.VarChar, color)
-      .input('idClienteParam', sql.Int, id_cliente)
-      .query(`
-        INSERT INTO VEHICULOS (PLACA, MARCA, MODELO, [AÑO], COLOR, ID_CLIENTE)
-        VALUES (@placaParam, @marcaParam, @modeloParam, @anioParam, @colorParam, @idClienteParam)
-      `);
-
-    res.json({ success: true, mensaje: 'Vehículo registrado exitosamente.' });
-  } catch (err) {
-    console.error("❌ Error al guardar vehículo:", err);
-    res.status(500).json({ success: false, mensaje: 'Error al registrar el vehículo en la base de datos.' });
-  }
+      .input('p', sql.VarChar, placa).input('m', sql.VarChar, marca)
+      .input('mod', sql.VarChar, modelo).input('a', sql.Int, anio)
+      .input('c', sql.VarChar, color).input('id', sql.Int, id_cliente)
+      .query("INSERT INTO VEHICULOS (PLACA, MARCA, MODELO, ANIO, COLOR, ID_CLIENTE) VALUES (@p, @m, @mod, @a, @c, @id)");
+    res.json({ success: true });
+  } catch (err) { console.error(err); res.status(500).json({ success: false }); }
 });
 
-
-
-
-
-// ==========================================
-// 🛠️ MÓDULO DE COTIZACIONES: OBTENER CATÁLOGO DE SERVICIOS
-// ==========================================
-app.get('/api/servicios', async (req, res) => {
+// =====================================================
+// 🛠️ MÓDULO: TALLER (KANBAN COMPLETO)
+// =====================================================
+app.post('/api/ordenes', async (req, res) => {
+  const { rol, idCliente } = req.body; 
   try {
     const pool = await sql.connect(dbConfig);
-    // 🟢 Corrección: Usamos PRECIO_BASE AS PRECIO para que React no falle
-    const result = await pool.request().query(`
-      SELECT ID_SERVICIO, NOMBRE_SERVICIO, PRECIO_BASE AS PRECIO, DESCRIPCION 
-      FROM CATALOGO_SERVICIOS
-      WHERE ESTADO = 'Activo'
-    `);
-    
-    res.json({ success: true, servicios: result.recordset });
-  } catch (err) {
-    console.error("❌ Error al obtener catálogo de servicios:", err);
-    res.status(500).json({ success: false, mensaje: 'Error al consultar el catálogo.' });
-  }
+    let query = `SELECT O.*, V.MARCA, V.MODELO FROM ORDENES_TRABAJO O INNER JOIN VEHICULOS V ON O.PLACA = V.PLACA WHERE O.ESTADO != 'Entregado'`;
+    if (rol !== 'Admin') { query += ` AND V.ID_CLIENTE = ${parseInt(idCliente)}`; }
+    const result = await pool.request().query(query);
+    res.json({ success: true, ordenes: result.recordset });
+  } catch (err) { res.status(500).json({ success: false }); }
 });
 
-  
-// ==========================================
-// 📝 MÓDULO DE COTIZACIONES: GUARDAR NUEVA COTIZACIÓN
-// ==========================================
-app.post('/api/cotizaciones', async (req, res) => {
-  const { idCliente, placa, paqueteId, fallaDescripcion } = req.body;
-
+app.put('/api/ordenes/:id/estado', async (req, res) => {
+  const { id } = req.params; const { nuevoEstado } = req.body;
   try {
     const pool = await sql.connect(dbConfig);
+    await pool.request().input('id', sql.Int, id).input('est', sql.VarChar, nuevoEstado).query("UPDATE ORDENES_TRABAJO SET ESTADO = @est WHERE ID_ORDEN = @id");
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false }); }
+});
 
-    let totalEstimado = 0;
-    if (paqueteId) {
-      // 🟢 Corrección: Buscamos PRECIO_BASE
-      const precioResult = await pool.request()
-        .input('idServicio', sql.Int, paqueteId)
-        .query("SELECT PRECIO_BASE FROM CATALOGO_SERVICIOS WHERE ID_SERVICIO = @idServicio");
-      
-      if (precioResult.recordset.length > 0) {
-        totalEstimado = precioResult.recordset[0].PRECIO_BASE;
-      }
+app.put('/api/ordenes/:id/peritaje', async (req, res) => {
+  const { id } = req.params; const { estadoVisual, estadoInterno } = req.body;
+  try {
+    const pool = await sql.connect(dbConfig);
+    await pool.request().input('id', sql.Int, id).input('v', sql.VarChar, estadoVisual).input('i', sql.VarChar, estadoInterno).query("UPDATE ORDENES_TRABAJO SET ESTADO_VISUAL = @v, ESTADO_INTERNO = @i WHERE ID_ORDEN = @id");
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false }); }
+});
+
+// FINALIZAR ORDEN CON FACTURA AUTOINCREMENTAL
+app.post('/api/ordenes/:id/finalizar', async (req, res) => {
+  const { id } = req.params;
+  const { total } = req.body;
+  try {
+    const pool = await sql.connect(dbConfig);
+    const ultimoRegistro = await pool.request().query("SELECT TOP 1 NUMERO_FACTURA FROM FACTURAS ORDER BY ID_FACTURA DESC");
+    let siguienteNumero = 1;
+    if (ultimoRegistro.recordset.length > 0) {
+      const ultimoNumStr = ultimoRegistro.recordset[0].NUMERO_FACTURA.replace('FAC-', '');
+      siguienteNumero = parseInt(ultimoNumStr) + 1;
     }
+    const numFac = 'FAC-' + siguienteNumero.toString().padStart(3, '0');
+
+    await pool.request().input('id', sql.Int, id).query("UPDATE ORDENES_TRABAJO SET ESTADO = 'Entregado' WHERE ID_ORDEN = @id");
+    await pool.request()
+      .input('idO', sql.Int, id).input('num', sql.VarChar, numFac).input('tot', sql.Decimal(10, 2), total)
+      .query(`INSERT INTO FACTURAS (ID_ORDEN, NUMERO_FACTURA, FECHA_FACTURACION, SUBTOTAL, IMPUESTOS, TOTAL, ESTADO)
+              VALUES (@idO, @num, GETDATE(), @tot / 1.12, (@tot / 1.12) * 0.12, @tot, 'Pendiente')`);
+    res.json({ success: true, factura: numFac });
+  } catch (err) { res.status(500).json({ success: false }); }
+});
+
+// =====================================================
+// 🧾 MÓDULO: FACTURACIÓN (GESTIÓN PRO)
+// =====================================================
+app.post('/api/facturas', async (req, res) => {
+  const { rol, idCliente } = req.body;
+  try {
+    const pool = await sql.connect(dbConfig);
+    let query = `SELECT F.*, O.PLACA FROM FACTURAS F LEFT JOIN ORDENES_TRABAJO O ON F.ID_ORDEN = O.ID_ORDEN LEFT JOIN VEHICULOS V ON O.PLACA = V.PLACA WHERE 1=1`;
+    const request = pool.request();
+    if (rol !== 'Admin') { query += ` AND V.ID_CLIENTE = @idParam`; request.input('idParam', sql.Int, parseInt(idCliente) || 0); }
+    const result = await request.query(query);
+
+    const facturasConRepuestos = await Promise.all(result.recordset.map(async (fac) => {
+      try {
+        const repuestos = await pool.request().input('idOrden', sql.Int, fac.ID_ORDEN).query("SELECT D.CANTIDAD, D.PRECIO_UNITARIO, I.NOMBRE_ITEM FROM DETALLE_ORDEN_REPUESTOS D INNER JOIN INVENTARIO I ON D.ID_ITEM = I.ID_ITEM WHERE D.ID_ORDEN = @idOrden");
+        return { ...fac, repuestos: repuestos.recordset };
+      } catch (err) { return { ...fac, repuestos: [] }; }
+    }));
+    res.json({ success: true, facturas: facturasConRepuestos });
+  } catch (err) { res.status(500).json({ success: false }); }
+});
+
+app.put('/api/facturas/:id/cambiar-estado', async (req, res) => {
+  const { id } = req.params;
+  const { estadoActual } = req.body;
+  const nuevoEstado = estadoActual === 'Pagada' ? 'Pendiente' : 'Pagada';
+  try {
+    const pool = await sql.connect(dbConfig);
+    await pool.request().input('id', sql.Int, id).input('est', sql.VarChar, nuevoEstado)
+      .query("UPDATE FACTURAS SET ESTADO = @est WHERE ID_FACTURA = @id");
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false }); }
+});
+
+app.delete('/api/facturas/:id', async (req, res) => {
+  try {
+    const pool = await sql.connect(dbConfig);
+    await pool.request().input('id', sql.Int, req.params.id).query("DELETE FROM FACTURAS WHERE ID_FACTURA = @id");
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false }); }
+});
+
+// =====================================================
+// 📅 MÓDULO: CITAS Y CONEXIÓN AL KANBAN
+// =====================================================
+app.get('/api/citas/disponibles/:fecha', async (req, res) => {
+  try {
+    const pool = await sql.connect(dbConfig);
+    const result = await pool.request().input('f', sql.Date, req.params.fecha).query("SELECT HORA_CITA FROM CITAS_WEB WHERE CAST(FECHA_CITA AS DATE) = @f AND ESTADO != 'Cancelada'");
+    res.json({ success: true, ocupadas: result.recordset.map(r => r.HORA_CITA) });
+  } catch (err) { res.status(500).json({ success: false }); }
+});
+
+app.post('/api/citas', async (req, res) => {
+  const { id_cliente, placa, fecha, hora, motivo } = req.body;
+  try {
+    const pool = await sql.connect(dbConfig);
+    const cliRes = await pool.request().input('id', sql.Int, id_cliente).query("SELECT NOMBRE_CLIENTE FROM CLIENTES WHERE ID_CLIENTE = @id");
+    const nombreC = cliRes.recordset[0]?.NOMBRE_CLIENTE || 'Cliente Web';
 
     await pool.request()
-      .input('idClienteParam', sql.Int, idCliente)
-      .input('placaParam', sql.VarChar, placa)
-      .input('idServicioParam', sql.Int, paqueteId || null) 
-      .input('observacionesParam', sql.VarChar, fallaDescripcion || '') 
-      .input('totalParam', sql.Decimal(10, 2), totalEstimado)
-      .query(`
-        INSERT INTO COTIZACIONES (ID_CLIENTE, PLACA, ID_SERVICIO, OBSERVACIONES, TOTAL_ESTIMADO)
-        VALUES (@idClienteParam, @placaParam, @idServicioParam, @observacionesParam, @totalParam)
-      `);
+      .input('id', sql.Int, id_cliente).input('p', sql.VarChar, placa).input('f', sql.Date, fecha)
+      .input('h', sql.VarChar, hora).input('m', sql.VarChar, motivo).input('nom', sql.VarChar, nombreC)
+      .query(`INSERT INTO CITAS_WEB (ID_CLIENTE, PLACA, FECHA_CITA, HORA_CITA, MOTIVO, NOMBRE_CONTACTO, ESTADO, FECHA_CREACION) 
+              VALUES (@id, @p, @f, @h, @m, @nom, 'Pendiente', GETDATE())`);
 
-    res.json({ success: true, mensaje: 'Cotización guardada exitosamente en SQL.' });
-  } catch (err) {
-    console.error("❌ Error al guardar la cotización:", err);
-    res.status(500).json({ success: false, mensaje: 'Error al registrar la cotización en la BD.' });
-  }
+    await pool.request().input('p', sql.VarChar, placa).input('m', sql.VarChar, motivo)
+      .query("INSERT INTO ORDENES_TRABAJO (PLACA, FECHA_INGRESO, ESTADO, COMENTARIO_CLIENTE) VALUES (@p, GETDATE(), 'Recibido', @m)");
+
+    res.json({ success: true });
+  } catch (err) { console.error(err); res.status(500).json({ success: false }); }
 });
 
-
-
-
-
-
-// --- ENCENDIDO DEL SERVIDOR ---
-const PUERTO = 3000; // 24. Define el puerto 3000 como la puerta de entrada del Backend
-app.listen(PUERTO, () => { // 25. Pone al servidor en modo "escucha" constante
-  console.log(`🚀 Servidor Backend escuchando en el puerto ${PUERTO}`); // 26. Mensaje de éxito en terminal
-  console.log(`🔗 Conectado a la base de datos en: ${dbConfig.server}`); // 27. Confirma a qué IP le estamos pegando
-});
+// 🚀 ENCENDIDO DEL SERVIDOR
+const PUERTO = 3000;
+app.listen(PUERTO, () => console.log(`🚀 API activa en http://localhost:${PUERTO}`));
