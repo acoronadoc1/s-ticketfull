@@ -8,7 +8,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import SearchIcon from '@mui/icons-material/Search'; 
-import AccountCircleIcon from '@mui/icons-material/AccountCircle'; // Ícono para la sección web
+import AccountCircleIcon from '@mui/icons-material/AccountCircle'; 
 import axios from 'axios'; 
 
 export default function Clientes() {
@@ -17,7 +17,6 @@ export default function Clientes() {
   const [openModal, setOpenModal] = useState(false); 
   const [isEditing, setIsEditing] = useState(false); 
   
-  // 🟢 NUEVO: El estado ahora incluye "usuario" y "password"
   const [clienteActivo, setClienteActivo] = useState({ 
     id: null, nit: '', nombre: '', telefono: '', usuario: '', password: '' 
   }); 
@@ -25,16 +24,23 @@ export default function Clientes() {
   const fetchClientes = async () => {
     try {
       const response = await axios.get('http://localhost:3000/api/clientes');
-      if (response.data.success) { setClientes(response.data.clientes); }
-    } catch (error) { console.error("Error:", error); }
+      if (response.data.success) { 
+        setClientes(response.data.clientes || []); 
+      }
+    } catch (error) { 
+      console.error("Error al cargar clientes:", error); 
+    }
   };
 
   useEffect(() => { fetchClientes(); }, []);
 
-  const clientesFiltrados = clientes.filter(cliente => 
-    cliente.NOMBRE_CLIENTE.toLowerCase().includes(filtro.toLowerCase()) || 
-    (cliente.NIT && cliente.NIT.includes(filtro))
-  );
+  // 🔍 Filtro mejorado para evitar errores con valores nulos
+  const clientesFiltrados = clientes.filter(cliente => {
+    const nombre = cliente.NOMBRE_CLIENTE ? cliente.NOMBRE_CLIENTE.toLowerCase() : "";
+    const nit = cliente.NIT ? cliente.NIT.toString() : "";
+    const termino = filtro.toLowerCase();
+    return nombre.includes(termino) || nit.includes(termino);
+  });
 
   const handleOpenNuevo = () => {
     setIsEditing(false); 
@@ -44,21 +50,19 @@ export default function Clientes() {
 
   const handleOpenEditar = (cliente) => {
     setIsEditing(true); 
-    // 🟢 NUEVO: Al editar, cargamos el usuario web si existe
     setClienteActivo({ 
       id: cliente.ID_CLIENTE, 
       nit: cliente.NIT || '', 
-      nombre: cliente.NOMBRE_CLIENTE, 
-      telefono: cliente.TELEFONO,
+      nombre: cliente.NOMBRE_CLIENTE || '', 
+      telefono: cliente.TELEFONO || '',
       usuario: cliente.NOMBRE_USUARIO || '', 
-      password: '' // La clave no se trae por seguridad, se deja en blanco
+      password: '' 
     });
     setOpenModal(true); 
   };
 
   const handleClose = () => setOpenModal(false);
 
-  // 🟢 CORRECCIÓN: La función handleChange estaba mal escrita en tu archivo anterior
   const handleChange = (e) => {
     setClienteActivo({ ...clienteActivo, [e.target.name]: e.target.value });
   };
@@ -72,7 +76,10 @@ export default function Clientes() {
       }
       setOpenModal(false); 
       fetchClientes();
-    } catch (error) { console.error(error); }
+    } catch (error) { 
+      console.error("Error al guardar:", error); 
+      alert("Error al procesar la solicitud");
+    }
   };
 
   const handleEliminar = async (id) => {
@@ -88,15 +95,14 @@ export default function Clientes() {
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#2e7d32' }}>Directorio de Clientes</Typography>
-        </Box>
+        <Typography variant="h4" sx={{ fontWeight: 'bold', color: '#2e7d32' }}>
+          Directorio de Clientes
+        </Typography>
         <Button variant="contained" color="success" startIcon={<AddCircleOutlineIcon />} onClick={handleOpenNuevo}>
           Nuevo Cliente
         </Button>
       </Box>
 
-      {/* --- BARRA DE BÚSQUEDA --- */}
       <Paper sx={{ p: 2, mb: 3, borderRadius: 2 }}>
         <TextField
           fullWidth
@@ -114,7 +120,7 @@ export default function Clientes() {
         />
       </Paper>
 
-      <TableContainer component={Paper} elevation={3}>
+      <TableContainer component={Paper} elevation={3} sx={{ borderRadius: 3 }}>
         <Table>
           <TableHead sx={{ backgroundColor: '#f5f5f5' }}>
             <TableRow>
@@ -122,7 +128,6 @@ export default function Clientes() {
               <TableCell><b>NIT</b></TableCell>
               <TableCell><b>Nombre</b></TableCell>
               <TableCell><b>Teléfono</b></TableCell>
-              {/* 🟢 NUEVA COLUMNA */}
               <TableCell><b>Usuario Web</b></TableCell> 
               <TableCell align="center"><b>Acciones</b></TableCell>
             </TableRow>
@@ -131,10 +136,9 @@ export default function Clientes() {
             {clientesFiltrados.map((cliente) => (
               <TableRow key={cliente.ID_CLIENTE} hover>
                 <TableCell>{cliente.ID_CLIENTE}</TableCell>
-                <TableCell>{cliente.NIT || 'N/A'}</TableCell>
+                <TableCell>{cliente.NIT || 'C/F'}</TableCell>
                 <TableCell sx={{ fontWeight: 'bold' }}>{cliente.NOMBRE_CLIENTE}</TableCell>
                 <TableCell>{cliente.TELEFONO}</TableCell>
-                {/* 🟢 NUEVA CELDA: Muestra el usuario o un texto gris si no tiene */}
                 <TableCell>
                   {cliente.NOMBRE_USUARIO ? (
                     <Typography variant="body2" color="primary" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
@@ -158,7 +162,6 @@ export default function Clientes() {
         </Table>
       </TableContainer>
 
-      {/* --- MODAL DE REGISTRO / EDICIÓN --- */}
       <Dialog open={openModal} onClose={handleClose} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>
           {isEditing ? 'Editar Perfil de Cliente' : 'Registrar Nuevo Cliente'}
@@ -175,18 +178,14 @@ export default function Clientes() {
               <TextField fullWidth label="Teléfono" name="telefono" value={clienteActivo.telefono} onChange={handleChange} size="small"/>
             </Grid>
             <Grid item xs={12}>
-              <TextField fullWidth label="Nombre Completo" name="nombre" value={clienteActivo.nombre} onChange={handleChange} size="small"/>
+              <TextField fullWidth label="Nombre Completo" name="nombre" value={clienteActivo.nombre} onChange={handleChange} size="small" required/>
             </Grid>
           </Grid>
 
           <Divider sx={{ my: 2 }} />
 
-          {/* 🟢 NUEVA SECCIÓN: CREDENCIALES WEB */}
           <Typography variant="subtitle2" color="primary" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
             <AccountCircleIcon sx={{ mr: 1 }} fontSize="small" /> ACCESO A PORTAL WEB (Opcional)
-          </Typography>
-          <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
-            Llene estos campos si desea que el cliente pueda ver el estado de su vehículo y facturas en línea.
           </Typography>
           
           <Grid container spacing={2}>
@@ -210,11 +209,10 @@ export default function Clientes() {
                 value={clienteActivo.password} 
                 onChange={handleChange} 
                 size="small"
-                helperText={isEditing ? "Deje en blanco para mantener la clave actual" : ""}
+                helperText={isEditing ? "Deje en blanco para mantener la actual" : ""}
               />
             </Grid>
           </Grid>
-
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={handleClose} color="inherit">Cancelar</Button>
