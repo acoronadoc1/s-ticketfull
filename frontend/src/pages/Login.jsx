@@ -19,14 +19,20 @@ export default function Login({ onLogin }) {
         password: password
       });
 
-      // 🟢 CÓDIGO CORREGIDO
       if (respuesta.data.success) {
+        // 1. Guardamos los datos en LocalStorage para que otras pantallas los lean
+        localStorage.setItem('rol', respuesta.data.rol);
+        localStorage.setItem('idCliente', respuesta.data.idCliente);
+        localStorage.setItem('usuario', usuario);
+
+        // 2. Avisamos a App.js que iniciamos sesión
         onLogin({ 
           auth: true, 
           rol: respuesta.data.rol, 
           usuario: usuario,
-          idCliente: respuesta.data.idCliente // 👈 AQUÍ ATRAPAMOS EL ID
+          idCliente: respuesta.data.idCliente 
         }); 
+        
         navigate('/'); 
       }
 
@@ -51,7 +57,6 @@ export default function Login({ onLogin }) {
       }}
     >
       <Paper elevation={3} sx={{ p: 4, width: '100%', maxWidth: 400, textAlign: 'center', margin: 'auto', borderRadius: 3 }}>
-        {/* 🟢 Título en color verde */}
         <Typography variant="h4" gutterBottom fontWeight="bold" sx={{ color: '#197f40' }}>
           ERP Automotriz
         </Typography>
@@ -85,7 +90,6 @@ export default function Login({ onLogin }) {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
-          {/* 🟢 Botón verde */}
           <Button 
             fullWidth 
             type="submit" 
@@ -96,9 +100,6 @@ export default function Login({ onLogin }) {
             Iniciar Sesión
           </Button>
 
-          {/* ==========================================
-              🟢 NUEVA SECCIÓN DE REGISTRO
-              ========================================== */}
           <Divider sx={{ my: 2 }}>o</Divider> 
 
           <Typography variant="body2" color="text.secondary">
