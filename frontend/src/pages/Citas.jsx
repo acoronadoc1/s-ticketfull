@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 
-import { Box, Paper, Typography, Grid, TextField, Button, Alert, Chip, Divider, Container, FormControl, InputLabel, Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { 
+  Box, Paper, Typography, Grid, TextField, Button, Alert, Chip, Divider, Container, 
+  FormControl, MenuItem, InputLabel, Select,
+  Dialog, DialogTitle, DialogContent, DialogActions, 
+  IconButton, Badge, Tooltip, Fab 
+} from '@mui/material';
 
 import axios from 'axios';
-
-
 
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 
@@ -16,7 +19,10 @@ import dayjs from 'dayjs';
 
 import 'dayjs/locale/es';
 
+import { useLocation } from 'react-router-dom';
 
+
+import AssignmentIcon from '@mui/icons-material/Assignment'; // O cualquier icono de lista/documento
 
 dayjs.locale('es');
 
@@ -26,7 +32,53 @@ const HORARIOS_BASE = ['08:00 AM', '10:00 AM', '01:00 PM', '03:00 PM', '05:00 PM
 
 
 
+
 export default function Citas({ idCliente }) {
+
+// 🎒 1. Extraemos la "mochila" que nos mandó la pantalla de Cotizaciones
+  const location = useLocation();
+  const datosRecibidos = location.state || {}; 
+
+  // 📝 2. Creamos un estado para guardar el ID de la cotización (si viene una)
+  const [idCotizacionVinculada, setIdCotizacionVinculada] = useState(datosRecibidos.cotizacionPrevia || '');
+
+// 📋 Estado para las cotizaciones que el cliente dejó guardadas
+  const [cotizacionesPendientes, setCotizacionesPendientes] = useState([]);
+
+  // 🔄 Función para traer las cotizaciones desde la base de datos
+  const cargarCotizacionesPendientes = async () => {
+    try {
+      const res = await axios.get(`http://localhost:3000/api/cotizaciones/pendientes/${idCliente}`);
+      if (res.data.success) {
+        setCotizacionesPendientes(res.data.cotizaciones);
+      }
+    } catch (error) {
+      console.error("Error al cargar cotizaciones:", error);
+    }
+  };
+
+  // 🗑️ Función para borrar una cotización que ya no quiera
+  const eliminarCotizacion = async (id) => {
+    if (window.confirm("¿Estás seguro de que deseas eliminar esta cotización?")) {
+      try {
+        const res = await axios.delete(`http://localhost:3000/api/cotizaciones/${id}`);
+        if (res.data.success) {
+          // Recargamos la lista para que desaparezca de la pantalla
+          cargarCotizacionesPendientes();
+        }
+      } catch (error) {
+        alert("No se pudo eliminar la cotización");
+      }
+    }
+  };
+
+  // 🚀 Cargar la lista apenas se abra la pantalla
+  useEffect(() => {
+    if (idCliente) {
+      cargarCotizacionesPendientes();
+    }
+  }, [idCliente]);
+
 
   const [fecha, setFecha] = useState(dayjs());
 
@@ -52,6 +104,20 @@ export default function Citas({ idCliente }) {
 
   const [mensajeModal, setMensajeModal] = useState({ texto: '', tipo: '' });
 
+  const [abrirModalCot, setAbrirModalCot] = useState(false);
+
+  // 🤖 3. Efecto para auto-completar los datos si venimos de una cotización
+ useEffect(() => {
+    if (datosRecibidos.placaPrevia) {
+      setPlaca(datosRecibidos.placaPrevia);
+    }
+    if (datosRecibidos.fallaPrevia) { 
+      setMotivo(datosRecibidos.fallaPrevia); // ⚡ NUEVA: Llena el comentario automáticamente
+    }
+    if (datosRecibidos.cotizacionPrevia) {
+      setIdCotizacionVinculada(datosRecibidos.cotizacionPrevia);
+    }
+  }, [datosRecibidos]);
 
 
   const cargarMisVehiculos = async () => {
@@ -146,94 +212,52 @@ export default function Citas({ idCliente }) {
 
       }
 
-    } catch (error) {
-
-      if (error.response && error.response.data) {
-
-        setMensajeModal({ texto: error.response.data.mensaje, tipo: 'error' });
-
-      } else {
-
-        setMensajeModal({ texto: 'Error al registrar el auto.', tipo: 'error' });
-
-      }
-
+    }  catch (error) {
+      // CORRECCIÓN: Manejo de errores más seguro para evitar alertas en blanco
+      const errorMsg = error.response?.data?.mensaje || 'Error de conexión con el servidor al registrar el auto.';
+      setMensajeModal({ texto: errorMsg, tipo: 'error' });
     }
-
   };
 
 
 
   // 🟢 FUNCIÓN ACTUALIZADA: Agenda cita y envía al Estatus (Kanban)
 
-  const handleAgendar = async (e) => {
+        const handleAgendar = async (e) => {
+            e.preventDefault();
+            if (!horaSeleccionada) {
+              setMensaje({ texto: 'Por favor, selecciona un horario disponible.', tipo: 'warning' });
+              return;
+            }
 
-    e.preventDefault();
+            try {
+              // 🔗 ENVIAMOS TODO: Incluimos el ID de la cotización que traíamos en la mochila
+              const respuesta = await axios.post('http://localhost:3000/api/citas', {
+                id_cliente: idCliente,
+                placa: placa,
+                fecha: fecha.format('YYYY-MM-DD'),
+                hora: horaSeleccionada,
+                motivo: motivo,
+                id_cotizacion: idCotizacionVinculada // <--- EL VÍNCULO SECRETO
+              });
 
-    if (!horaSeleccionada) {
-
-      setMensaje({ texto: 'Por favor, selecciona un horario disponible.', tipo: 'warning' });
-
-      return;
-
-    }
-
-
-
-    try {
-
-      // 1. Guardar la cita
-
-      const respuesta = await axios.post('http://localhost:3000/api/citas', {
-
-        id_cliente: idCliente,
-
-        placa: placa,
-
-        fecha: fecha.format('YYYY-MM-DD'),
-
-        hora: horaSeleccionada,
-
-        motivo: motivo
-
-      });
-
-
-
-      if (respuesta.data.success) {
-
-        // 2. 🚀 REGISTRO AUTOMÁTICO EN EL KANBAN (ESTATUS)
-
-        await axios.post('http://localhost:3000/api/ordenes-desde-cita', {
-
-          placa: placa,
-
-          motivo: motivo
-
-        });
-
-
-
-        setMensaje({ texto: '¡Cita agendada con éxito! Ya puedes ver tu vehículo en el estatus.', tipo: 'success' });
-
-        setHorasOcupadas([...horasOcupadas, horaSeleccionada]);
-
-        setHoraSeleccionada('');
-
-        setPlaca('');
-
-        setMotivo('');
-
-      }
-
-    } catch (error) {
-
-      setMensaje({ texto: 'Error al agendar la cita.', tipo: 'error' });
-
-    }
-
-  };
-
+              if (respuesta.data.success) {
+                setMensaje({ texto: '¡Cita agendada con éxito! Te esperamos en el taller.', tipo: 'success' });
+                
+                // Limpiamos todo para una nueva cita
+                setHorasOcupadas([...horasOcupadas, horaSeleccionada]);
+                setHoraSeleccionada('');
+                setPlaca('');
+                setMotivo('');
+                setIdCotizacionVinculada(''); // Limpiamos el vínculo
+                
+                // 🔄 Recargamos la lista de pendientes para que la que acabamos de usar desaparezca
+                cargarCotizacionesPendientes();
+              }
+            } catch (error) {
+              setMensaje({ texto: 'Error al agendar la cita.', tipo: 'error' });
+            }
+          };
 
 
   return (
@@ -260,6 +284,7 @@ export default function Citas({ idCliente }) {
 
 
 
+
         <Paper elevation={3} sx={{ p: 4, borderRadius: 4 }}>
 
           <Grid container spacing={4}>
@@ -275,6 +300,72 @@ export default function Citas({ idCliente }) {
               </Box>
 
             </Grid>
+
+
+           {/* 🖼️ Ventana Emergente de Cotizaciones */}
+              <Dialog 
+                open={abrirModalCot} 
+                onClose={() => setAbrirModalCot(false)}
+                fullWidth
+                maxWidth="sm"
+              >
+                <DialogTitle sx={{ fontWeight: 'bold', color: 'primary' }}>
+                  Tus Cotizaciones Guardadas
+                </DialogTitle>
+                
+                <DialogContent dividers>
+                  {cotizacionesPendientes.length === 0 ? (
+                    <Typography align="center" sx={{ py: 3 }}>No tienes cotizaciones pendientes.</Typography>
+                  ) : (
+                    cotizacionesPendientes.map((cot) => (
+                      <Box key={cot.ID_COTIZACION} sx={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center', 
+                        mb: 2, p: 2, 
+                        bgcolor: '#f9f9f9', 
+                        borderRadius: 2,
+                        border: '1px solid #eee'
+                      }}>
+                        <Box>
+                          <Typography variant="subtitle1" fontWeight="bold">
+                            #{cot.ID_COTIZACION} - {cot.NOMBRE_SERVICIO || 'Diagnóstico General'}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Vehículo: {cot.PLACA}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                          <Button 
+                            variant="contained" 
+                            size="small"
+                            onClick={() => {
+                              setPlaca(cot.PLACA);
+                              setMotivo(cot.OBSERVACIONES);
+                              setIdCotizacionVinculada(cot.ID_COTIZACION);
+                              setAbrirModalCot(false); // Cerramos el modal al elegir
+                            }}
+                          >
+                            Usar
+                          </Button>
+                          <Button 
+                            variant="outlined" 
+                            color="error" 
+                            size="small"
+                            onClick={() => eliminarCotizacion(cot.ID_COTIZACION)}
+                          >
+                            Borrar
+                          </Button>
+                        </Box>
+                      </Box>
+                    ))
+                  )}
+                </DialogContent>
+                
+                <DialogActions>
+                  <Button onClick={() => setAbrirModalCot(false)}>Cerrar</Button>
+                </DialogActions>
+              </Dialog>
 
 
 
@@ -454,6 +545,28 @@ export default function Citas({ idCliente }) {
 
         </Dialog>
 
+
+            {/* 🚀 Botón Flotante de Cotizaciones Pendientes */}
+            {cotizacionesPendientes.length > 0 && (
+              <Tooltip title="Ver mis cotizaciones guardadas" arrow>
+                <Fab 
+                  color="primary" 
+                  aria-label="cotizaciones"
+                  onClick={() => setAbrirModalCot(true)}
+                  sx={{ 
+                    position: 'fixed', 
+                    bottom: 30, 
+                    right: 30, 
+                    backgroundColor: '#af514c', 
+                    '&:hover': { backgroundColor: '#8c403c' } 
+                  }}
+                >
+                  <Badge badgeContent={cotizacionesPendientes.length} color="error">
+                    <AssignmentIcon />
+                  </Badge>
+                </Fab>
+              </Tooltip>
+            )}
 
 
       </Container>
