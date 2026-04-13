@@ -1,25 +1,20 @@
 import React, { useState, useEffect } from 'react'; 
 import { 
-  Box, Typography, Grid, Paper, Card, CardContent, Chip, Button, 
+  Box, Typography, Grid, Paper, Card, CardContent, Chip, 
   Divider, Container, Dialog, DialogTitle, DialogContent, 
-  DialogActions, TextField 
-} from '@mui/material'; 
+  DialogActions, Button, TextField 
+} from '@mui/material';
 import BuildCircleIcon from '@mui/icons-material/BuildCircle'; 
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar'; 
-import CheckCircleIcon from '@mui/icons-material/CheckCircle'; 
 import CarRepairIcon from '@mui/icons-material/CarRepair'; 
-import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
-import ArrowForwardIosIcon from '@mui/icons-material/ArrowForwardIos';
+import EngineeringIcon from '@mui/icons-material/Engineering';
 import axios from 'axios'; 
 
 export default function Estatusv() {
   const [ordenes, setOrdenes] = useState([]);
-  
-  // --- ESTADOS PARA REPORTES GENERALES ---
   const [modalPeritaje, setModalPeritaje] = useState(false);
   const [ordenSeleccionada, setOrdenSeleccionada] = useState(null);
-  const [textoFisico, setTextoFisico] = useState("");
-  const [textoInterno, setTextoInterno] = useState("");
+  const [observaciones, setObservaciones] = useState("");
 
   const columnasKanban = ['Recibido', 'En Revisión', 'En Reparación', 'Listo para Entrega'];
 
@@ -28,142 +23,89 @@ export default function Estatusv() {
       const rol = localStorage.getItem('rol');
       const idCliente = localStorage.getItem('idCliente');
       const response = await axios.post('http://localhost:3000/api/ordenes', { rol, idCliente });
-      if (response.data.success) { setOrdenes(response.data.ordenes); }
-    } catch (error) { console.error("Error al cargar Kanban:", error); }
+      if (response.data.success) { 
+        setOrdenes(response.data.ordenes);
+      }
+    } catch (error) { 
+      console.error("Error al cargar Estatus:", error); 
+    }
   };
 
-  useEffect(() => { fetchOrdenes(); }, []);
+  // 🕒 EFECTO DE AUTO-REFRESCO (Cada 15 segundos)
+  useEffect(() => { 
+    fetchOrdenes(); // Carga inicial
+    const intervalo = setInterval(fetchOrdenes, 15000); 
+    return () => clearInterval(intervalo); // Limpieza al cerrar pestaña
+  }, []);
 
-  // --- ABRIR MODAL DE REPORTES GENERALES (FÍSICO E INTERNO) ---
   const abrirReporte = (orden) => {
     setOrdenSeleccionada(orden);
-    setTextoFisico(orden.ESTADO_VISUAL || "");
-    setTextoInterno(orden.ESTADO_INTERNO || ""); 
+    setObservaciones(orden.OBSERVACIONES_RECEPCION || ""); 
     setModalPeritaje(true);
-  };
-
-  const guardarPeritaje = async () => {
-    try {
-      await axios.put(`http://localhost:3000/api/ordenes/${ordenSeleccionada.ID_ORDEN}/peritaje`, {
-        estadoVisual: textoFisico,
-        estadoInterno: textoInterno
-      });
-      setModalPeritaje(false);
-      fetchOrdenes();
-    } catch (error) { alert("No se pudo guardar el reporte."); }
-  };
-
-  // --- FUNCIÓN PARA MOVER TARJETAS (AVANZAR Y RETROCEDER) ---
-  const cambiarEstado = async (idOrden, nuevoEstado) => {
-    try {
-      await axios.put(`http://localhost:3000/api/ordenes/${idOrden}/estado`, {
-        nuevoEstado: nuevoEstado
-      });
-      fetchOrdenes();
-    } catch (error) { console.error("Error moviendo tarjeta:", error); }
-  };
-
-  const finalizarProceso = async (idOrden) => {
-    const monto = prompt("Ingrese el monto total a cobrar (Q):", "500");
-    if (monto && !isNaN(monto)) {
-      try {
-        await axios.post(`http://localhost:3000/api/ordenes/${idOrden}/finalizar`, { total: parseFloat(monto) });
-        alert("✅ Vehículo entregado. Factura generada.");
-        fetchOrdenes();
-      } catch (error) { alert("Error al procesar la salida."); }
-    }
   };
 
   const getColorColumna = (columna) => {
     switch(columna) {
-      case 'Recibido': return '#e3f2fd'; 
+      case 'Recibido': return '#e3f2fd';
       case 'En Revisión': return '#fff3e0'; 
       case 'En Reparación': return '#fbe9e7'; 
       case 'Listo para Entrega': return '#e8f5e9'; 
-      default: return '#f5f5f5'; 
+      default: return '#f5f5f5';
     }
   };
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom sx={{ fontWeight: 'bold', color: '#1565c0', display: 'flex', alignItems: 'center' }}>
-          <BuildCircleIcon sx={{ fontSize: 40, mr: 1 }} /> Seguimiento de Vehículo
+      <Box sx={{ mb: 4, textAlign: 'center' }}>
+        <Typography variant="h3" component="h1" gutterBottom sx={{ fontWeight: 'bold', color: '#1565c0', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <BuildCircleIcon sx={{ fontSize: 50, mr: 2 }} /> Monitor de Taller en Vivo
         </Typography>
-        <Typography variant="body1" color="text.secondary">
-          {localStorage.getItem('rol') === 'Admin' ? "Gestiona el flujo de trabajo del taller." : "Consulta el progreso en tiempo real de tu reparación."}
+        <Typography variant="h6" color="text.secondary">
+          Consulta el progreso de tu vehículo en tiempo real. La pantalla se actualiza automáticamente.
         </Typography>
       </Box>
 
       <Grid container spacing={3}>
-        {columnasKanban.map((columna, indexColumna) => (
+        {columnasKanban.map((columna) => (
           <Grid item xs={12} sm={6} md={3} key={columna}>
-            <Paper sx={{ p: 2, minHeight: '70vh', bgcolor: getColorColumna(columna), borderRadius: 3, boxShadow: 2 }}>
-              <Typography variant="h6" align="center" sx={{ mb: 2, fontWeight: 'bold', color: '#424242' }}>{columna}</Typography>
-              <Divider sx={{ mb: 2 }} />
+            <Paper sx={{ p: 2, minHeight: '75vh', bgcolor: getColorColumna(columna), borderRadius: 4, boxShadow: 4, border: '1px solid #ddd' }}>
+              <Typography variant="h5" align="center" sx={{ mb: 2, fontWeight: 'bold', color: '#1a237e' }}>{columna}</Typography>
+              <Divider sx={{ mb: 3, bgcolor: '#1a237e', height: 2 }} />
 
               {ordenes.filter(o => o.ESTADO === columna).map(orden => (
-                <Card key={orden.ID_ORDEN} sx={{ mb: 2, borderRadius: 2, boxShadow: 3 }}>
+                <Card key={orden.ID_ORDEN} sx={{ mb: 3, borderRadius: 3, boxShadow: 5, transition: '0.3s', '&:hover': { transform: 'scale(1.02)' } }}>
                   <CardContent sx={{ p: 2 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="subtitle1" sx={{ fontWeight: '900', color: '#1976d2' }}>{orden.PLACA}</Typography>
-                      <Chip label={`#${orden.ID_ORDEN}`} size="small" />
+                      <Typography variant="h5" sx={{ fontWeight: '900', color: '#d32f2f' }}>{orden.PLACA}</Typography>
+                      <Chip label={`ID #${orden.ID_ORDEN}`} color="primary" variant="outlined" size="small" />
                     </Box>
 
-                    <Typography variant="body2" sx={{ mb: 1, fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
-                      <DirectionsCarIcon fontSize="small" sx={{ mr: 0.5 }} /> {orden.MARCA} {orden.MODELO}
+                    <Typography variant="h6" sx={{ mb: 1, fontWeight: 'bold', display: 'flex', alignItems: 'center' }}>
+                      <DirectionsCarIcon fontSize="medium" sx={{ mr: 1, color: '#455a64' }} /> {orden.MARCA} {orden.MODELO}
                     </Typography>
 
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2, fontStyle: 'italic', minHeight: '40px' }}>
-                      "{orden.COMENTARIO_CLIENTE || 'Sin notas'}"
-                    </Typography>
+                    <Box sx={{ mt: 2, mb: 2, p: 1.5, bgcolor: '#fafafa', borderRadius: 2, borderLeft: '5px solid #1565c0' }}>
+                       <Typography variant="body2" sx={{ fontStyle: 'italic' }}>
+                        "{orden.COMENTARIO_CLIENTE || 'Sin observaciones del cliente'}"
+                      </Typography>
+                    </Box>
 
-                    {/* BOTÓN REPORTES GENERALES (Muestra estado si ya está lleno) */}
-                    <Button 
-                      fullWidth size="small" variant="outlined" startIcon={<CarRepairIcon />}
-                      onClick={() => abrirReporte(orden)}
-                      sx={{ mb: 2, textTransform: 'none', fontWeight: 'bold' }}
-                      color={(orden.ESTADO_VISUAL || orden.ESTADO_INTERNO) ? "success" : "inherit"}
-                    >
-                      {(orden.ESTADO_VISUAL || orden.ESTADO_INTERNO) ? "Ver Reportes Generales" : "Reportes Generales"}
-                    </Button>
-
-                    {/* CONTROLES DE AVANCE Y RETROCESO (SOLO ADMIN) */}
-                    {localStorage.getItem('rol') === 'Admin' && (
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        
-                        {/* 🔴 BOTÓN VOLVER: Aparece en todas las columnas excepto en la primera */}
-                        {columna !== 'Recibido' && (
-                          <Button 
-                            variant="outlined" color="secondary" size="small" sx={{ minWidth: '45px' }}
-                            onClick={() => cambiarEstado(orden.ID_ORDEN, columnasKanban[indexColumna - 1])}
-                          >
-                            <ArrowBackIosNewIcon fontSize="small" />
-                          </Button>
-                        )}
-
-                        {/* 🟢 BOTÓN AVANZAR / FINALIZAR */}
-                        {columna !== 'Listo para Entrega' ? (
-                          <Button 
-                            fullWidth variant="contained" size="small" endIcon={<ArrowForwardIosIcon fontSize="small"/>}
-                            color={columna === 'Recibido' ? 'info' : columna === 'En Revisión' ? 'warning' : 'error'}
-                            onClick={() => cambiarEstado(orden.ID_ORDEN, columnasKanban[indexColumna + 1])}
-                          >
-                            Avanzar
-                          </Button>
-                        ) : (
-                          <Button fullWidth variant="contained" color="success" size="small" startIcon={<CheckCircleIcon />} onClick={() => finalizarProceso(orden.ID_ORDEN)}>
-                            Finalizar
-                          </Button>
-                        )}
-                      </Box>
+                    {/* BOTÓN SOLO PARA VER OBSERVACIONES DEL TALLER */}
+                    {orden.OBSERVACIONES_RECEPCION && (
+                      <Button 
+                        fullWidth variant="contained" color="success" startIcon={<CarRepairIcon />}
+                        onClick={() => abrirReporte(orden)}
+                        sx={{ mt: 1, borderRadius: 2, fontWeight: 'bold' }}
+                      >
+                        Ver Notas Técnicas
+                      </Button>
                     )}
 
-                    {localStorage.getItem('rol') !== 'Admin' && (
-                      <Box sx={{ mt: 1, p: 1, bgcolor: '#f5f5f5', borderRadius: 1, textAlign: 'center' }}>
-                        <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#1565c0' }}>ESTADO: {columna.toUpperCase()}</Typography>
-                      </Box>
-                    )}
+                    <Box sx={{ mt: 2, p: 1, bgcolor: '#e8eaf6', borderRadius: 1, textAlign: 'center' }}>
+                       <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#1a237e', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                         <EngineeringIcon sx={{ fontSize: 16, mr: 0.5 }} /> ESTADO: {columna.toUpperCase()}
+                       </Typography>
+                    </Box>
                   </CardContent>
                 </Card>
               ))}
@@ -172,45 +114,24 @@ export default function Estatusv() {
         ))}
       </Grid>
 
-      {/* MODAL DE REPORTES GENERALES (DIVIDIDO) */}
+      {/* MODAL DE NOTAS TÉCNICAS (SOLO LECTURA PARA EL CLIENTE) */}
       <Dialog open={modalPeritaje} onClose={() => setModalPeritaje(false)} fullWidth maxWidth="md">
-        <DialogTitle sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>
-          Reportes Generales: {ordenSeleccionada?.PLACA}
+        <DialogTitle sx={{ fontWeight: 'bold', bgcolor: '#1565c0', color: 'white' }}>
+          Notas del Taller: Vehículo {ordenSeleccionada?.PLACA}
         </DialogTitle>
         <DialogContent dividers>
-          <Grid container spacing={3}>
-            
-            {/* SECCIÓN FÍSICA */}
-            <Grid item xs={12} md={6}>
-              <Typography variant="subtitle2" color="primary" sx={{ fontWeight: 'bold', mb: 1 }}>📋 DAÑOS FÍSICOS EXTERNOS</Typography>
-              <TextField
-                fullWidth multiline rows={6}
-                disabled={localStorage.getItem('rol') !== 'Admin'}
-                placeholder="Golpes, rayones, llantas..."
-                value={textoFisico}
-                onChange={(e) => setTextoFisico(e.target.value)}
-              />
-            </Grid>
-
-            {/* SECCIÓN INTERNA */}
-            <Grid item xs={12} md={6}>
-              <Typography variant="subtitle2" color="error" sx={{ fontWeight: 'bold', mb: 1 }}>⚙️ DAÑOS INTERNOS / ELÉCTRICOS</Typography>
-              <TextField
-                fullWidth multiline rows={6}
-                disabled={localStorage.getItem('rol') !== 'Admin'}
-                placeholder="Luces, ruidos, testigos tablero..."
-                value={textoInterno}
-                onChange={(e) => setTextoInterno(e.target.value)}
-              />
-            </Grid>
-
-          </Grid>
+          <Typography variant="subtitle1" color="primary" sx={{ fontWeight: 'bold', mb: 2 }}>
+            📋 REPORTE TÉCNICO DE RECEPCIÓN
+          </Typography>
+          <TextField
+            fullWidth multiline rows={10}
+            value={observaciones}
+            variant="outlined"
+            InputProps={{ readOnly: true }}
+          />
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setModalPeritaje(false)} color="inherit">Cerrar</Button>
-          {localStorage.getItem('rol') === 'Admin' && (
-            <Button variant="contained" onClick={guardarPeritaje} color="primary">Guardar Reportes</Button>
-          )}
+          <Button onClick={() => setModalPeritaje(false)} variant="contained" color="primary">Entendido</Button>
         </DialogActions>
       </Dialog>
     </Container>

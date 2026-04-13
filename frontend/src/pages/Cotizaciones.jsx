@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Container, Typography, Grid, Paper, TextField, MenuItem, Button, Divider } from '@mui/material';
-import BuildIcon from '@mui/icons-material/Build';
+import { 
+  Box, Container, Typography, Grid, Paper, TextField, 
+  MenuItem, Button, Divider, 
+  Table, TableBody, TableRow, TableCell // ⚡ ESTOS 4 ERAN LOS QUE FALTABAN
+} from '@mui/material';import BuildIcon from '@mui/icons-material/Build';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 export default function Cotizaciones({ idCliente }) {
+  const navigate = useNavigate(); // ⚡ AQUÍ ACTIVAMOS LA NAVEGACIÓN
   const [paqueteId, setPaqueteId] = useState('');
   const [fallaDescripcion, setFallaDescripcion] = useState('');
   const [placa, setPlaca] = useState('');
@@ -12,6 +17,9 @@ export default function Cotizaciones({ idCliente }) {
   // Estados para guardar lo que viene de la Base de Datos
   const [misVehiculos, setMisVehiculos] = useState([]);
   const [catalogoServicios, setCatalogoServicios] = useState([]);
+
+  
+
 
   // Buscamos el paquete en los datos reales de SQL
   const paqueteSeleccionado = catalogoServicios.find(p => p.ID_SERVICIO === paqueteId);
@@ -39,30 +47,40 @@ export default function Cotizaciones({ idCliente }) {
     cargarDatos();
   }, [idCliente]);
 
-  // 🟢 ACCIÓN: Enviar la cotización a Node.js
+
+ // 🟢 ACCIÓN CORREGIDA: Enviar la cotización y saltar con seguridad
   const handleSolicitarCotizacion = async (e) => {
-    e.preventDefault();
+    e.preventDefault(); // 1. Detenemos la recarga de inmediato
+
     try {
-      // Usamos AXIOS POST para mandar los datos a la ruta que creamos hoy
       const respuesta = await axios.post('http://localhost:3000/api/cotizaciones', {
         idCliente,
         placa,
-        paqueteId: paqueteId || null, // Si no eligió, manda nulo
+        paqueteId: paqueteId || null, 
         fallaDescripcion
       });
 
       if (respuesta.data.success) {
-        alert("✅ " + respuesta.data.mensaje); // Mensaje real de éxito desde Node
-        // Limpiamos el formulario
-        setPaqueteId('');
-        setFallaDescripcion('');
-        setPlaca('');
+        // 2. Ahora sí tenemos el ID real del servidor
+        const idCotizacionGenerada = respuesta.data.idCotizacion;
+        
+        alert(`✅ Cotización #${idCotizacionGenerada} solicitada con éxito.`); 
+        
+        // 3. Navegamos llevando TODA la información
+        navigate('/citas', { 
+          state: { 
+            cotizacionPrevia: idCotizacionGenerada,
+            placaPrevia: placa,
+            fallaPrevia: fallaDescripcion 
+          } 
+        }); 
       }
     } catch (error) {
       console.error('Error al solicitar cotización:', error);
       alert('❌ Hubo un error al guardar tu solicitud.');
     }
   };
+
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
@@ -177,17 +195,26 @@ export default function Cotizaciones({ idCliente }) {
                       {paqueteSeleccionado.NOMBRE_SERVICIO}
                     </Typography>
                     
-                    {/* 🟢 LA MAGIA AQUÍ: Convertimos el texto de SQL en un listado */}
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                       ----------------------------------------------  Este paquete incluye ----------------------------------------------
+                    <Typography variant="body2" color="text.secondary" gutterBottom align="center">
+                       ------------------- Este paquete incluye -------------------
                     </Typography>
-                    <Box component="ul" sx={{ pl: 2, mb: 3, color: 'text.secondary' }}>
-                      {paqueteSeleccionado.DESCRIPCION
-                        .replace('Incluye:', '')  // Quitamos la palabra "Incluye:" para que no estorbe
-                        .split(',')               // Cortamos la oración cada vez que hay una coma
-                        .map((item, index) => (   // Dibujamos una viñeta (li) por cada pedazo
-                          <li key={index}><Typography variant="body2">{item.trim()}</Typography></li>
-                      ))}
+                    
+                    <Box sx={{ mb: 3 }}>
+                      <Table size="small">
+                        <TableBody>
+                          {/* Mapeamos la receta dinámica que viene de la Base de Datos */}
+                          {paqueteSeleccionado.receta && paqueteSeleccionado.receta.map((item, index) => (
+                            <TableRow key={index}>
+                              <TableCell sx={{ borderBottom: '1px dashed #e0e0e0', py: 1, color: 'text.secondary' }}>
+                                x{item.CANTIDAD} {item.NOMBRE_ITEM}
+                              </TableCell>
+                              <TableCell align="right" sx={{ borderBottom: '1px dashed #e0e0e0', py: 1, color: 'text.secondary' }}>
+                                Q{(item.CANTIDAD * item.PRECIO_VENTA).toFixed(2)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
                     </Box>
                     
                     <Divider sx={{ mb: 2 }} />
