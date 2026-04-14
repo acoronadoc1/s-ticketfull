@@ -57,8 +57,8 @@ const dbConfig = {
   database: process.env.DB_NAME, 
   port: parseInt(process.env.DB_PORT),
   options: {
-    encrypt: true, 
-    trustServerCertificate: false 
+    encrypt:true,
+    trustServerCertificate: false
   }
 };
 
@@ -621,10 +621,9 @@ app.post('/api/ordenes/ingreso-desde-cita', async (req, res) => {
 
 
 
-  // =====================================================
-// 📸 MÓDULO: RECEPCIÓN FOTOGRÁFICA DE VEHÍCULOS
+ // =====================================================
+// 📸 MÓDULO: RECEPCIÓN FOTOGRÁFICA (CON AUTO-CONVERSIÓN)
 // =====================================================
-
 app.put('/api/ordenes/:id/recepcion-imagenes', upload.fields([
   { name: 'fotoFrente', maxCount: 1 },
   { name: 'fotoTrasera', maxCount: 1 },
@@ -632,20 +631,43 @@ app.put('/api/ordenes/:id/recepcion-imagenes', upload.fields([
   { name: 'fotoLateralIzquierdo', maxCount: 1 }
 ]), async (req, res) => {
   const { id } = req.params;
+  const { tipo } = req.body; // 🕵️‍♂️ Recibimos si es CITA u ORDEN
   const files = req.files;
 
   try {
-    // 1. Extraemos las URLs que Cloudinary nos devuelve (si el archivo fue enviado)
     const urlFrente = files['fotoFrente'] ? files['fotoFrente'][0].path : null;
     const urlTrasera = files['fotoTrasera'] ? files['fotoTrasera'][0].path : null;
     const urlDer = files['fotoLateralDerecho'] ? files['fotoLateralDerecho'][0].path : null;
     const urlIzq = files['fotoLateralIzquierdo'] ? files['fotoLateralIzquierdo'][0].path : null;
 
     const pool = await sql.connect(dbConfig);
-    
-    // 2. Guardamos las URLs en la tabla ORDENES_TRABAJO
+    let idOrdenFinal = id;
+
+    // ✨ MAGIA: Si viene de una CITA, la convertimos en ORDEN antes de guardar la foto
+    if (tipo === 'CITA') {
+      const cita = await pool.request().input('idC', sql.Int, id).query("SELECT * FROM CITAS_WEB WHERE ID_CITA = @idC");
+      const c = cita.recordset[0];
+
+      const nuevaOrden = await pool.request()
+        .input('placa', sql.VarChar, c.PLACA)
+        .input('coment', sql.VarChar, c.MOTIVO_CITA || 'Sin observaciones')
+        .input('idCita', sql.Int, c.ID_CITA)
+        .input('idCot', sql.Int, c.ID_COTIZACION || null)
+        .query(`
+          INSERT INTO ORDENES_TRABAJO (PLACA, FECHA_INGRESO, ESTADO, COMENTARIO_CLIENTE, ID_CITA, ID_COTIZACION)
+          OUTPUT INSERTED.ID_ORDEN
+          VALUES (@placa, GETDATE(), 'Recibido', @coment, @idCita, @idCot)
+        `);
+
+      idOrdenFinal = nuevaOrden.recordset[0].ID_ORDEN;
+
+      // Desactivamos la cita
+      await pool.request().input('idC', sql.Int, id).query("UPDATE CITAS_WEB SET ESTADO = 'Atendida' WHERE ID_CITA = @idC");
+    }
+
+    // 2. Guardamos las URLs usando el ID correcto (el nuevo o el que ya existía)
     await pool.request()
-      .input('id', sql.Int, id)
+      .input('id', sql.Int, idOrdenFinal)
       .input('f', sql.VarChar, urlFrente)
       .input('t', sql.VarChar, urlTrasera)
       .input('d', sql.VarChar, urlDer)
@@ -659,16 +681,17 @@ app.put('/api/ordenes/:id/recepcion-imagenes', upload.fields([
           FOTO_LATERAL_IZQUIERDO = COALESCE(@i, FOTO_LATERAL_IZQUIERDO)
         WHERE ID_ORDEN = @id
       `);
-      
-    // Nota: COALESCE evita que se borre una foto vieja si en esta actualización no se mandó esa foto específica.
 
-    res.json({ success: true, message: 'Recepción fotográfica guardada con éxito' });
+    res.json({ 
+      success: true, 
+      message: 'Recepción fotográfica guardada con éxito',
+      nuevoIdOrden: tipo === 'CITA' ? idOrdenFinal : null // Le enviamos el nuevo ID a React
+    });
   } catch (err) {
-    console.error("❌ Error al subir imágenes de recepción:", err.message);
+    console.error("❌ Error al subir imágenes:", err.message);
     res.status(500).json({ success: false, message: 'Error en el servidor al subir imágenes' });
   }
 });
-
 
 
 
@@ -752,28 +775,35 @@ app.get('/api/tecnicos/datos-iniciales', async (req, res) => {
   try {
     const pool = await sql.connect(dbConfig);
 
-    const ordenes = await pool.request().query(`
-      SELECT ID_ORDEN, PLACA 
-      FROM ORDENES_TRABAJO 
-      WHERE ESTADO IN ('Recibido', 'En Revisión')
-      AND ID_ORDEN NOT IN (
-        SELECT ID_ORDEN 
-        FROM DETALLE_ORDEN_SERVICIOS 
-        WHERE ESTADO != 'Finalizado'
-      )
+   // Query Híbrido: Trae Órdenes abiertas Y Citas pendientes
+const ordenes = await pool.request().query(`
+  SELECT ID_ORDEN as ID, PLACA, 'ORDEN' as TIPO 
+  FROM ORDENES_TRABAJO 
+  WHERE ESTADO = 'Recibido'
+  
+  UNION ALL
+  
+  SELECT ID_CITA as ID, PLACA, 'CITA' as TIPO 
+  FROM CITAS_WEB 
+  WHERE ESTADO = 'Pendiente' 
+  -- 🚀 Eliminamos el filtro de GETDATE() para ver todas las citas
+`);
+
+
+  // CAMBIO CLAVE: Carga Inteligente de Mecánicos (Máximo 4 tareas)
+const mecanicos = await pool.request().query(`
+      SELECT 
+        M.ID_MECANICO, 
+        M.NOMBRE_MECANICO + ' (' + CAST(
+          (SELECT COUNT(*) 
+           FROM DETALLE_ORDEN_SERVICIOS D 
+           WHERE D.ID_USUARIO_TECNICO = M.ID_MECANICO 
+           AND D.ESTADO NOT IN ('Finalizado', 'Liquidado')
+          ) AS VARCHAR
+        ) + ' activas)' AS NOMBRE_MECANICO
+      FROM MECANICOS M
     `);
 
-    // CAMBIO CLAVE: Ahora leemos de la tabla MECANICOS que vimos en Azure
-const mecanicos = await pool.request().query(`
-      SELECT ID_MECANICO, NOMBRE_MECANICO 
-      FROM MECANICOS 
-      WHERE ID_MECANICO NOT IN (
-        SELECT ID_USUARIO_TECNICO 
-        FROM DETALLE_ORDEN_SERVICIOS 
-        WHERE ESTADO != 'Finalizado' 
-        AND ID_USUARIO_TECNICO IS NOT NULL
-      )
-    `);
 
     // Catálogo de servicios
     // Cambia la línea de servicios por esta:
@@ -793,86 +823,28 @@ const mecanicos = await pool.request().query(`
 });
 
 
-// 2. Asignar Tareas (VERSION CON DEBUGGER)
-app.post('/api/tecnicos/asignar', async (req, res) => {
-  const { idOrden, idsServicios, idsMecanicos } = req.body;
-  try {
-    const pool = await sql.connect(dbConfig);
-    
-    for (let idSrv of idsServicios) {
-        await pool.request()
-          .input('idO', sql.Int, idOrden)
-          .input('idS', sql.Int, idSrv)
-          .input('idM', sql.Int, idsMecanicos[0])
-          .query(`
-            INSERT INTO DETALLE_ORDEN_SERVICIOS (ID_ORDEN, ID_SERVICIO, ID_USUARIO_TECNICO, ESTADO) 
-            VALUES (@idO, @idS, @idM, 'Asignado')
-          `);
-    }
-
-    await pool.request()
-      .input('idO', sql.Int, idOrden)
-      .input('idM', sql.Int, idsMecanicos[0])
-      .query("UPDATE ORDENES_TRABAJO SET ID_TECNICO = @idM WHERE ID_ORDEN = @idO");
-
-    res.json({ success: true });
-  } catch (err) { 
-    // ESTA ES LA LINEA CLAVE: Ahora sí verás el error en tu terminal negra
-    console.error("❌ ERROR EN ASIGNACIÓN:", err.message);
-    res.status(500).json({ success: false, detalle: err.message }); 
-  }
-});
-
-
-// 3. Ver Trabajo Actual (Lo que sale en las tarjetas)
-app.get('/api/tecnicos/trabajo-actual', async (req, res) => {
-  try {
-    const pool = await sql.connect(dbConfig);
-    const result = await pool.request().query(`
-      SELECT 
-        D.ID_DETALLE_SRV, 
-        D.ID_ORDEN, 
-        O.PLACA, 
-        S.NOMBRE_SERVICIO, 
-        M.NOMBRE_MECANICO,
-        D.ESTADO, 
-        D.ID_USUARIO_TECNICO AS ID_MECANICO
-      FROM DETALLE_ORDEN_SERVICIOS D
-      INNER JOIN ORDENES_TRABAJO O ON D.ID_ORDEN = O.ID_ORDEN
-      INNER JOIN CATALOGO_SERVICIOS S ON D.ID_SERVICIO = S.ID_SERVICIO
-      INNER JOIN MECANICOS M ON D.ID_USUARIO_TECNICO = M.ID_MECANICO
-      -- 🐛 FIX: Excluimos tanto los Finalizados como los Liquidados (Pagados)
-      WHERE D.ESTADO NOT IN ('Finalizado', 'Liquidado')
-    `);
-    
-    res.json(result.recordset);
-  } catch (err) { 
-    console.error("❌ ERROR EN TRABAJO ACTUAL:", err.message);
-    res.status(500).send([]); 
-  }
-});
-
-// 4. Actualizar Estado (VERSION SEGURA Y CON VERBOSE LOGS)
 // =====================================================
-// 🔄 ACTUALIZAR ESTADO DE LA TAREA (Y ARRANCAR RELOJ)
+// 🔄 4. ACTUALIZAR ESTADO DE LA TAREA (Y ENVIAR CORREO)
 // =====================================================
- app.put('/api/tecnicos/actualizar-estado', async (req, res) => {
-  const { idDetalle, idOrden, estado } = req.body;
+app.put('/api/tecnicos/actualizar-estado', async (req, res) => {
+  // 🐛 FIX: Extraemos 'nuevoEstado' exactamente como lo envía React
+  const { idDetalle, idOrden, nuevoEstado } = req.body; 
+  
   try {
     const pool = await sql.connect(dbConfig);
     
-    // 1. Actualizamos el estado en las tablas (Tu lógica original)
+    // 1. Actualizamos el estado en las tablas
     await pool.request()
-      .input('est', sql.VarChar, estado)
+      .input('est', sql.VarChar, nuevoEstado)
       .input('idD', sql.Int, idDetalle)
       .query("UPDATE DETALLE_ORDEN_SERVICIOS SET ESTADO = @est WHERE ID_DETALLE_SRV = @idD");
 
     await pool.request()
-      .input('est', sql.VarChar, estado)
+      .input('est', sql.VarChar, nuevoEstado)
       .input('idO', sql.Int, idOrden)
       .query("UPDATE ORDENES_TRABAJO SET ESTADO = @est WHERE ID_ORDEN = @idO");
 
-    // 2. 📧 MAGIA NUEVA: Buscar los datos del cliente para el correo
+    // 2. 📧 Buscar datos para el correo de notificación
     const infoCliente = await pool.request()
       .input('idO', sql.Int, idOrden)
       .query(`
@@ -898,7 +870,7 @@ app.get('/api/tecnicos/trabajo-actual', async (req, res) => {
             <div style="text-align: center; margin: 30px 0;">
               <p style="font-size: 14px; color: #666; margin-bottom: 5px;">El nuevo estado de tu vehículo es:</p>
               <span style="background-color: #ff9800; color: white; padding: 10px 20px; border-radius: 20px; font-size: 18px; font-weight: bold;">
-                ${estado}
+                ${nuevoEstado}
               </span>
             </div>
             <p style="font-size: 14px; color: #555;">Puedes revisar el progreso en vivo y las fotos de recepción desde nuestro portal web.</p>
@@ -908,9 +880,8 @@ app.get('/api/tecnicos/trabajo-actual', async (req, res) => {
         `
       };
       
-      // Enviamos en segundo plano para no hacer esperar a la pantalla del técnico
       transporter.sendMail(mailOptions)
-        .then(() => console.log(`📧 Correo enviado a ${datos.CORREO} (Estado: ${estado})`))
+        .then(() => console.log(`📧 Correo enviado a ${datos.CORREO} (Estado: ${nuevoEstado})`))
         .catch(err => console.error("❌ Error enviando correo:", err));
     }
 
@@ -920,6 +891,111 @@ app.get('/api/tecnicos/trabajo-actual', async (req, res) => {
     res.status(500).json({ success: false, message: 'Error en el servidor' });
   }
 });
+
+
+
+
+// =====================================================
+// 2. Asignar Tareas (VERSIÓN MAESTRA Y BLINDADA)
+// =====================================================
+app.post('/api/tecnicos/asignar', async (req, res) => {
+  const { idSeleccionado, tipo, idsServicios, idsMecanicos } = req.body; 
+  
+  try {
+    const pool = await sql.connect(dbConfig);
+    let idOrdenFinal = idSeleccionado;
+
+    // ✨ SI ES UNA CITA, LA CONVERTIMOS EN ORDEN PRIMERO
+    if (tipo === 'CITA') {
+      // 1. Buscamos los datos en CITAS_WEB
+      const cita = await pool.request()
+        .input('idC', sql.Int, idSeleccionado)
+        .query("SELECT * FROM CITAS_WEB WHERE ID_CITA = @idC");
+      
+      const c = cita.recordset[0];
+
+      // 2. Insertamos en ORDENES_TRABAJO (Blindado contra nulos)
+      const nuevaOrden = await pool.request()
+        .input('placa', sql.VarChar, c.PLACA)
+        .input('coment', sql.VarChar, c.MOTIVO_CITA || 'Sin observaciones previas')
+        .input('idCita', sql.Int, c.ID_CITA)
+        .input('idCot', sql.Int, c.ID_COTIZACION || null)
+        .query(`
+          INSERT INTO ORDENES_TRABAJO 
+          (PLACA, FECHA_INGRESO, ESTADO, COMENTARIO_CLIENTE, ID_CITA, ID_COTIZACION)
+          OUTPUT INSERTED.ID_ORDEN
+          VALUES (@placa, GETDATE(), 'En Revisión', @coment, @idCita, @idCot)
+        `);
+        
+      idOrdenFinal = nuevaOrden.recordset[0].ID_ORDEN;
+
+      // 3. Marcamos la cita como 'Atendida'
+      await pool.request()
+        .input('idC', sql.Int, idSeleccionado)
+        .query("UPDATE CITAS_WEB SET ESTADO = 'Atendida' WHERE ID_CITA = @idC");
+    }
+
+    // 🔨 CONTINUAMOS CON LA ASIGNACIÓN NORMAL
+    // Iteramos para guardar cada servicio a cada mecánico seleccionado
+    for (let idServicio of idsServicios) {
+      for (let idMecanico of idsMecanicos) {
+        await pool.request()
+          .input('idO', sql.Int, idOrdenFinal)
+          .input('idS', sql.Int, idServicio)
+          .input('idM', sql.Int, idMecanico)
+          .query(`
+            INSERT INTO DETALLE_ORDEN_SERVICIOS 
+            (ID_ORDEN, ID_SERVICIO, ID_USUARIO_TECNICO, ESTADO) 
+            VALUES (@idO, @idS, @idM, 'Asignado')
+          `);
+      }
+    }
+
+    res.json({ success: true, message: 'Vehículo recibido y orden generada' });
+  } catch (err) {
+    console.error("❌ Error en asignación:", err.message);
+    res.status(500).send(err.message);
+  }
+});
+
+
+
+
+
+// =====================================================
+// 📋 3. VER TRABAJO ACTUAL (TARJETAS DEL TALLER EN VIVO)
+// =====================================================
+app.get('/api/tecnicos/trabajo-actual', async (req, res) => {
+  try {
+    const pool = await sql.connect(dbConfig);
+    const result = await pool.request().query(`
+      SELECT 
+        D.ID_DETALLE_SRV, 
+        D.ID_ORDEN, 
+        O.PLACA, 
+        S.NOMBRE_SERVICIO, 
+        M.NOMBRE_MECANICO,
+        D.ESTADO, 
+        D.ID_USUARIO_TECNICO AS ID_MECANICO
+      FROM DETALLE_ORDEN_SERVICIOS D
+      INNER JOIN ORDENES_TRABAJO O ON D.ID_ORDEN = O.ID_ORDEN
+      INNER JOIN CATALOGO_SERVICIOS S ON D.ID_SERVICIO = S.ID_SERVICIO
+      INNER JOIN MECANICOS M ON D.ID_USUARIO_TECNICO = M.ID_MECANICO
+      WHERE D.ESTADO NOT IN ('Finalizado', 'Liquidado')
+    `);
+    
+    res.json(result.recordset);
+  } catch (err) { 
+    console.error("❌ ERROR EN TRABAJO ACTUAL:", err.message);
+    res.status(500).send([]); 
+  }
+});
+
+
+
+
+
+
 
 // 5. Finalizar Tarea con DESCUENTO AUTOMÁTICO DE INVENTARIO
 // =====================================================
@@ -1016,18 +1092,23 @@ app.get('/api/tecnicos/historial', async (req, res) => {
         O.PLACA, 
         S.NOMBRE_SERVICIO, 
         M.NOMBRE_MECANICO, 
-        S.PRECIO_BASE AS PRECIO_COBRADO, -- Usamos PRECIO_BASE de tu catálogo
-        D.FECHA_FIN
+        D.FECHA_FIN,
+        -- 💰 MAGIA: Precio base del catálogo + Total de repuestos extras usados
+        (S.PRECIO_BASE + ISNULL((
+            SELECT SUM(SUBTOTAL) 
+            FROM DETALLE_ORDEN_REPUESTOS 
+            WHERE ID_ORDEN = D.ID_ORDEN
+        ), 0)) AS PRECIO_COBRADO
       FROM DETALLE_ORDEN_SERVICIOS D
       INNER JOIN ORDENES_TRABAJO O ON D.ID_ORDEN = O.ID_ORDEN
-      INNER JOIN CATALOGO_SERVICIOS S ON D.ID_SERVICIO = S.ID_SERVICIO -- ⚡ FIX: Tabla correcta
+      INNER JOIN CATALOGO_SERVICIOS S ON D.ID_SERVICIO = S.ID_SERVICIO
       INNER JOIN MECANICOS M ON D.ID_USUARIO_TECNICO = M.ID_MECANICO
       WHERE D.ESTADO = 'Finalizado'
       ORDER BY D.FECHA_FIN DESC
     `);
     res.json(result.recordset);
   } catch (err) { 
-    console.error("❌ Error cargando el historial:", err.message); // Le agregué un log para que si falla, te avise en la consola
+    console.error("❌ Error cargando el historial:", err.message);
     res.status(500).send([]); 
   }
 });
