@@ -13,6 +13,12 @@ import AddIcon from '@mui/icons-material/Add';
 import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
 import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
 import BuildIcon from '@mui/icons-material/Build';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import DeleteIcon from '@mui/icons-material/Delete';
+import { IconButton } from '@mui/material';
+
+
+
 
 
 export default function Tecnicos() {
@@ -20,7 +26,7 @@ export default function Tecnicos() {
   const [datos, setDatos] = useState({ ordenes: [], mecanicos: [], servicios: [] });
   const [trabajoActual, setTrabajoActual] = useState([]);
   const [historial, setHistorial] = useState([]);
-  const [seleccion, setSeleccion] = useState({ idOrden: '', idsServicios: [], idsMecanicos: [] });
+  const [seleccion, setSeleccion] = useState({ id: '', tipo: '', idsServicios: [], idsMecanicos: [] });
   // Controladores manuales para los Dropdowns
   const [abrirServicios, setAbrirServicios] = useState(false);
   const [abrirMecanicos, setAbrirMecanicos] = useState(false);
@@ -46,20 +52,41 @@ export default function Tecnicos() {
   const [subiendoFotos, setSubiendoFotos] = useState(false); // Para mostrar un "Cargando..."
 
 
+
+
+  // ... tu estado anterior de fotosUpload
+const [previews, setPreviews] = useState({ frente: null, trasera: null, lateralDerecho: null, lateralIzquierdo: null });
+
+const handleFileChange = (e, angulo) => {
+  const file = e.target.files[0];
+  if (file) {
+    setFotosUpload({ ...fotosUpload, [angulo]: file });
+    // Generamos una URL temporal para mostrar la imagen antes de subirla
+    setPreviews({ ...previews, [angulo]: URL.createObjectURL(file) });
+  }
+};
+
+const quitarFoto = (angulo) => {
+  setFotosUpload({ ...fotosUpload, [angulo]: null });
+  setPreviews({ ...previews, [angulo]: null });
+};
+
+
+  //Funcion para las fotos
   //Funcion para las fotos
   const handleSubirFotos = async () => {
     if (!ordenParaFotos) return;
     setSubiendoFotos(true);
 
-    // Empaquetamos los archivos para enviarlos por HTTP
     const formData = new FormData();
+    formData.append('tipo', seleccion.tipo); // 🕵️‍♂️ NUEVO: Le avisamos al backend qué estamos enviando
+
     if (fotosUpload.frente) formData.append('fotoFrente', fotosUpload.frente);
     if (fotosUpload.trasera) formData.append('fotoTrasera', fotosUpload.trasera);
     if (fotosUpload.lateralDerecho) formData.append('fotoLateralDerecho', fotosUpload.lateralDerecho);
     if (fotosUpload.lateralIzquierdo) formData.append('fotoLateralIzquierdo', fotosUpload.lateralIzquierdo);
 
     try {
-      // Importante: El header 'multipart/form-data' es obligatorio para archivos
       const res = await axios.put(`http://localhost:3000/api/ordenes/${ordenParaFotos}/recepcion-imagenes`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
@@ -67,8 +94,15 @@ export default function Tecnicos() {
       if (res.data.success) {
         alert("¡Fotos subidas a la nube correctamente!");
         setAbrirModalFotos(false);
+        
+        // Limpiamos los recuadros
         setFotosUpload({ frente: null, trasera: null, lateralDerecho: null, lateralIzquierdo: null });
-        // Aquí podrías llamar a tu función para recargar los datos
+        setPreviews({ frente: null, trasera: null, lateralDerecho: null, lateralIzquierdo: null });
+        
+        // 🌟 NUEVO: Si la Cita se convirtió en Orden, actualizamos la memoria de React
+        if (res.data.nuevoIdOrden) {
+          setSeleccion({ ...seleccion, id: res.data.nuevoIdOrden, tipo: 'ORDEN' });
+        }
       }
     } catch (error) {
       console.error("Error al subir fotos:", error);
@@ -79,15 +113,6 @@ export default function Tecnicos() {
   };
 
 
-
-  ///Funcion para manejar los archivos de fotos
-
-  const handleFileChange = (e, angulo) => {
-    setFotosUpload({
-      ...fotosUpload,
-      [angulo]: e.target.files[0]
-    });
-  };
 
 
 
@@ -138,15 +163,28 @@ export default function Tecnicos() {
     setHistorial(res.data);
   };
 
-  const enviarAsignacion = async () => {
-    if (!seleccion.idOrden || seleccion.idsServicios.length === 0 || seleccion.idsMecanicos.length === 0) return alert("Faltan datos");
-    try {
-      await axios.post('http://localhost:3000/api/tecnicos/asignar', seleccion);
-      alert("✅ Asignado");
-      setSeleccion({ idOrden: '', idsServicios: [], idsMecanicos: [] });
-      cargarDatos(); cargarTrabajoActual();
-    } catch (err) { alert("Error"); }
-  };
+ const enviarAsignacion = async () => {
+  if (!seleccion.id || seleccion.idsServicios.length === 0 || seleccion.idsMecanicos.length === 0) {
+    return alert("Faltan datos");
+  }
+  try {
+    await axios.post('http://localhost:3000/api/tecnicos/asignar', {
+      idSeleccionado: seleccion.id,
+      tipo: seleccion.tipo,
+      idsServicios: seleccion.idsServicios,
+      idsMecanicos: seleccion.idsMecanicos
+    });
+
+    alert("✅ Vehículo recibido y orden generada");
+    setSeleccion({ id: '', tipo: '', idsServicios: [], idsMecanicos: [] });
+    cargarDatos(); 
+    cargarTrabajoActual(); 
+  } catch (err) { 
+    alert("Error al procesar la recepción"); 
+  }
+};
+
+
 
   const finalizarTarea = async (idDet, idMec) => {
     try {
@@ -228,18 +266,30 @@ const finalizarTareaTecnica = async (idDet, idOrd) => {
 
               {/* 1. SELECCIONAR ORDEN */}
               <FormControl fullWidth sx={{ mb: 3 }}>
-                <InputLabel>Paso 1: Selecciona el Vehículo (Orden)</InputLabel>
-                <Select 
-                  value={seleccion.idOrden} 
-                  onChange={(e) => setSeleccion({...seleccion, idOrden: e.target.value})}
-                  label="Paso 1: Selecciona el Vehículo (Orden)"
-                >
-                  {datos.ordenes.map(o => <MenuItem key={o.ID_ORDEN} value={o.ID_ORDEN}>Orden #{o.ID_ORDEN} - Placa: {o.PLACA}</MenuItem>)}
-                </Select>
-              </FormControl>
-
+  <InputLabel>Paso 1: Selecciona el Vehículo (Cita u Orden)</InputLabel>
+  <Select 
+    value={seleccion.id} 
+    onChange={(e) => {
+      const item = datos.ordenes.find(o => o.ID === e.target.value);
+      setSeleccion({ ...seleccion, id: e.target.value, tipo: item.TIPO });
+    }}
+    label="Paso 1: Selecciona el Vehículo (Cita u Orden)"
+  >
+    {datos.ordenes.map(o => (
+      <MenuItem key={`${o.TIPO}-${o.ID}`} value={o.ID}>
+        <Chip 
+          label={o.TIPO} 
+          size="small" 
+          color={o.TIPO === 'CITA' ? 'warning' : 'primary'} 
+          sx={{ mr: 1, fontWeight: 'bold' }} 
+        />
+        #{o.ID} - Placa: {o.PLACA}
+      </MenuItem>
+    ))}
+  </Select>
+</FormControl> 
               {/* 2. SI SELECCIONA ORDEN -> APARECE LA MAGIA */}
-              {seleccion.idOrden && (
+              {seleccion.id && (
                 <Box sx={{ mt: 2, p: 3, bgcolor: '#f8fafd', borderRadius: 2, border: '2px dashed #90caf9' }}>
                   
                   <Typography variant="subtitle1" fontWeight="bold" color="primary" gutterBottom>
@@ -248,7 +298,7 @@ const finalizarTareaTecnica = async (idDet, idOrd) => {
                   <Button 
                     fullWidth variant="outlined" color="primary" sx={{ mb: 4, py: 1.5, borderWidth: 2, fontWeight: 'bold' }}
                     startIcon={<PhotoCameraIcon />}
-                    onClick={() => { setOrdenParaFotos(seleccion.idOrden); setAbrirModalFotos(true); }}
+                   onClick={() => { setOrdenParaFotos(seleccion.id); setAbrirModalFotos(true); }}
                   >
                     Tomar / Adjuntar Fotos del Vehículo
                   </Button>
@@ -444,50 +494,82 @@ const finalizarTareaTecnica = async (idDet, idOrd) => {
 
 
 
-{/* ================= MODAL DE RECEPCIÓN FOTOGRÁFICA ================= */}
-      <Dialog open={abrirModalFotos} onClose={() => setAbrirModalFotos(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ bgcolor: '#1976d2', color: 'white', mb: 2, display: 'flex', alignItems: 'center' }}>
-          <PhotoCameraIcon sx={{ mr: 1 }} /> Recepción Fotográfica - Orden #{ordenParaFotos}
-        </DialogTitle>
-        <DialogContent dividers>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Adjunte las fotografías del estado actual del vehículo. Los formatos permitidos son JPG, PNG y WEBP.
-          </Typography>
-          
-          <Grid container spacing={2}>
-            <Grid item xs={12} sm={6}>
-              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Frontal:</Typography>
-              <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'frente')} />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Trasera:</Typography>
-              <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'trasera')} />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Lateral Derecho:</Typography>
-              <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'lateralDerecho')} />
-            </Grid>
-            <Grid item xs={12} sm={6}>
-              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 'bold' }}>Lateral Izquierdo:</Typography>
-              <input type="file" accept="image/*" onChange={(e) => handleFileChange(e, 'lateralIzquierdo')} />
-            </Grid>
-          </Grid>
+{/* ================= MODAL DE RECEPCIÓN FOTOGRÁFICA (MODERNO) ================= */}
+<Dialog 
+  open={abrirModalFotos} 
+  onClose={() => {
+    setAbrirModalFotos(false);
+    setPreviews({ frente: null, trasera: null, lateralDerecho: null, lateralIzquierdo: null });
+  }} 
+  maxWidth="md" 
+  fullWidth
+>
+  <DialogTitle sx={{ bgcolor: '#1565c0', color: 'white', mb: 2, display: 'flex', alignItems: 'center' }}>
+    <PhotoCameraIcon sx={{ mr: 1 }} /> Recepción Fotográfica - Orden #{ordenParaFotos}
+  </DialogTitle>
+  <DialogContent dividers>
+    <Typography variant="body1" color="text.secondary" sx={{ mb: 4, textAlign: 'center' }}>
+      Adjunte las fotografías del estado actual del vehículo haciendo clic en cada recuadro.
+    </Typography>
+    
+    <Grid container spacing={3}>
+      {[
+        { id: 'frente', label: '📸 Vista Frontal' },
+        { id: 'trasera', label: '📸 Vista Trasera' },
+        { id: 'lateralDerecho', label: '📸 Lateral Derecho' },
+        { id: 'lateralIzquierdo', label: '📸 Lateral Izquierdo' }
+      ].map((angulo) => (
+        <Grid item xs={12} sm={6} key={angulo.id}>
+          <Paper 
+            variant="outlined" 
+            sx={{ 
+              height: 200, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', 
+              border: previews[angulo.id] ? '2px solid #4caf50' : '2px dashed #90caf9', 
+              bgcolor: previews[angulo.id] ? '#f1f8e9' : '#f8fafd', position: 'relative', overflow: 'hidden'
+            }}
+          >
+            {previews[angulo.id] ? (
+              // Si ya hay foto, mostramos la vista previa
+              <>
+                <img src={previews[angulo.id]} alt={angulo.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <IconButton 
+                  onClick={() => quitarFoto(angulo.id)}
+                  sx={{ position: 'absolute', top: 8, right: 8, bgcolor: 'rgba(255,255,255,0.8)', '&:hover': { bgcolor: 'white' } }}
+                >
+                  <DeleteIcon color="error" />
+                </IconButton>
+              </>
+            ) : (
+              // Si no hay foto, mostramos el botón de subida ocultando el input feo
+              <Button component="label" sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', color: '#1565c0' }}>
+                <CloudUploadIcon sx={{ fontSize: 50, mb: 1, color: '#64b5f6' }} />
+                <Typography variant="subtitle1" fontWeight="bold">{angulo.label}</Typography>
+                <Typography variant="caption" color="text.secondary">Clic para subir imagen</Typography>
+                <input type="file" hidden accept="image/*" onChange={(e) => handleFileChange(e, angulo.id)} />
+              </Button>
+            )}
+          </Paper>
+        </Grid>
+      ))}
+    </Grid>
 
-          {subiendoFotos && (
-            <Box sx={{ mt: 3, p: 2, bgcolor: '#fff3e0', borderRadius: 1, textAlign: 'center' }}>
-              <Typography variant="body2" color="warning.dark" fontWeight="bold">
-                ⏳ Subiendo imágenes a la nube, por favor espere...
-              </Typography>
-            </Box>
-          )}
-        </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setAbrirModalFotos(false)} color="inherit" disabled={subiendoFotos}>Cancelar</Button>
-          <Button variant="contained" color="primary" onClick={handleSubirFotos} disabled={subiendoFotos}>
-            {subiendoFotos ? "Subiendo..." : "Guardar en la Nube"}
-          </Button>
-        </DialogActions>
-      </Dialog>
+    {subiendoFotos && (
+      <Box sx={{ mt: 4, p: 2, bgcolor: '#fff3e0', borderRadius: 2, borderLeft: '5px solid #ff9800' }}>
+        <Typography variant="body1" color="warning.dark" fontWeight="bold" textAlign="center">
+          ⏳ Subiendo imágenes a la nube de forma segura, por favor no cierre esta ventana...
+        </Typography>
+      </Box>
+    )}
+  </DialogContent>
+  <DialogActions sx={{ p: 3, bgcolor: '#f5f5f5' }}>
+    <Button onClick={() => setAbrirModalFotos(false)} color="inherit" disabled={subiendoFotos} sx={{ fontWeight: 'bold' }}>
+      Cancelar
+    </Button>
+    <Button variant="contained" color="primary" size="large" onClick={handleSubirFotos} disabled={subiendoFotos} sx={{ fontWeight: 'bold', px: 4 }}>
+      {subiendoFotos ? "SUBIENDO..." : "GUARDAR EN LA NUBE"}
+    </Button>
+  </DialogActions>
+</Dialog>
 
 
 
