@@ -19,13 +19,37 @@ router.get('/inventario', async (req, res) => {
   }
 });
 
-// 2. Crear nuevo repuesto
+// 2. Crear nuevo repuesto (Protegido contra duplicados y negativos)
 router.post('/inventario', async (req, res) => {
   const { NOMBRE_ITEM, STOCK_ACTUAL, PRECIO_COSTO, PRECIO_VENTA } = req.body;
+  
+  // Validaciones básicas de tipo y presencia de datos
+  if (!NOMBRE_ITEM || STOCK_ACTUAL === undefined || !PRECIO_COSTO || !PRECIO_VENTA) {
+    return res.status(400).json({ success: false, message: "Todos los campos del formulario son obligatorios." });
+  }
+
+  if (parseInt(STOCK_ACTUAL) < 0) {
+    return res.status(400).json({ success: false, message: "El stock inicial no puede ser un valor negativo." });
+  }
+
   try {
     const pool = await getConnection();
+
+    // 🛡️ CONTROL DE DUPLICADOS: Verificamos si el concepto ya existe en minúsculas/mayúsculas
+    const comprobacion = await pool.request()
+      .input('nombre', sql.VarChar, NOMBRE_ITEM.trim())
+      .query("SELECT TOP 1 NOMBRE_ITEM FROM INVENTARIO WHERE LOWER(NOMBRE_ITEM) = LOWER(@nombre)");
+
+    if (comprobacion.recordset.length > 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `El repuesto "${NOMBRE_ITEM}" ya está registrado. Utilice los botones (+ / -) en la lista inferior para alterar sus existencias.` 
+      });
+    }
+
+    // Si el producto es nuevo, se inserta con normalidad
     await pool.request()
-      .input('nombre', sql.VarChar, NOMBRE_ITEM)
+      .input('nombre', sql.VarChar, NOMBRE_ITEM.trim())
       .input('stock', sql.Int, parseInt(STOCK_ACTUAL))
       .input('costo', sql.Decimal(10,2), parseFloat(PRECIO_COSTO))
       .input('venta', sql.Decimal(10,2), parseFloat(PRECIO_VENTA))
@@ -33,16 +57,26 @@ router.post('/inventario', async (req, res) => {
         INSERT INTO INVENTARIO (NOMBRE_ITEM, STOCK_ACTUAL, PRECIO_COSTO, PRECIO_VENTA)
         VALUES (@nombre, @stock, @costo, @venta)
       `);
-    res.json({ success: true, message: "Repuesto guardado" });
+
+    res.json({ success: true, message: "Repuesto guardado de forma exitosa en la base de datos." });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    // 📢 RASTREO TÉCNICO: Esto imprimirá la causa exacta en tu terminal si un ítem nuevo llega a fallar
+    console.error("❌ ERROR CRÍTICO EN SQL SERVER (INSERT INVENTARIO):", err);
+    res.status(500).json({ success: false, message: `Error interno de base de datos: ${err.message}` });
   }
 });
 
-// 3. Actualizar stock manual (+ y -)
+
+// 3. Actualizar stock manual (+ y - Protegido)
 router.put('/inventario/stock/:id', async (req, res) => {
   const { id } = req.params;
   const { nuevoStock } = req.body;
+
+  // 🛡️ CONTROL DE SEGURIDAD: Bloquea cualquier intento de actualización por debajo de cero
+  if (parseInt(nuevoStock) < 0) {
+    return res.status(400).json({ success: false, message: "Operación rechazada. Las existencias no pueden descender de cero." });
+  }
+
   try {
     const pool = await getConnection();
     await pool.request()

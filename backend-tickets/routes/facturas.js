@@ -72,4 +72,58 @@ router.delete('/facturas/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false }); }
 });
 
+
+// 4. Obtener detalle completo de una factura (Cliente + Servicios + Repuestos)
+router.get('/facturas/:id/detalle', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const pool = await getConnection();
+
+    // A. Datos Generales de Factura, Cliente y Vehículo
+    const infoGeneral = await pool.request().input('id', sql.Int, id).query(`
+      SELECT F.NUMERO_FACTURA, F.FECHA_FACTURACION, F.SUBTOTAL, F.IMPUESTOS, F.TOTAL, F.ESTADO,
+             O.ID_ORDEN, O.PLACA, O.COMENTARIO_CLIENTE,
+             V.MARCA, V.MODELO,
+             C.NOMBRE_CLIENTE, C.CORREO
+      FROM FACTURAS F
+      INNER JOIN ORDENES_TRABAJO O ON F.ID_ORDEN = O.ID_ORDEN
+      INNER JOIN VEHICULOS V ON O.PLACA = V.PLACA
+      INNER JOIN CLIENTES C ON V.ID_CLIENTE = C.ID_CLIENTE
+      WHERE F.ID_FACTURA = @id
+    `);
+
+    if (infoGeneral.recordset.length === 0) {
+      return res.status(404).json({ success: false, message: "Factura no encontrada" });
+    }
+
+    // B. Servicios mano de obra consumidos
+    const servicios = await pool.request().input('id', sql.Int, id).query(`
+      SELECT S.NOMBRE_SERVICIO, D.PRECIO_COBRADO AS TOTAL_LINEA
+      FROM DETALLE_ORDEN_SERVICIOS D
+      INNER JOIN CATALOGO_SERVICIOS S ON D.ID_SERVICIO = S.ID_SERVICIO
+      WHERE D.ID_ORDEN = (SELECT ID_ORDEN FROM FACTURAS WHERE ID_FACTURA = @id)
+    `);
+
+    // C. Repuestos extras utilizados
+    const repuestos = await pool.request().input('id', sql.Int, id).query(`
+      SELECT I.NOMBRE_ITEM, DR.CANTIDAD, DR.PRECIO_UNITARIO, DR.SUBTOTAL as TOTAL_LINEA
+      FROM DETALLE_ORDEN_REPUESTOS DR
+      INNER JOIN INVENTARIO I ON DR.ID_ITEM = I.ID_ITEM
+      WHERE DR.ID_ORDEN = (SELECT ID_ORDEN FROM FACTURAS WHERE ID_FACTURA = @id)
+    `);
+
+    res.json({
+      success: true,
+      general: infoGeneral.recordset[0],
+      servicios: servicios.recordset,
+      repuestos: repuestos.recordset
+    });
+
+  } catch (err) {
+    console.error("Error al obtener detalle de factura:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
 module.exports = router;

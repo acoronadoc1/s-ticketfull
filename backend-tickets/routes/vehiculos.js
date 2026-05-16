@@ -62,4 +62,32 @@ router.post('/garaje', async (req, res) => {
   }
 });
 
+
+// =====================================================
+// 📋 RUTAS DE CATÁLOGOS PARA SELECTS EN CASCADA
+// =====================================================
+router.get('/vehiculos/catalogos', async (req, res) => {
+  try {
+    const pool = await getConnection();
+    
+    // Traemos todas las marcas activas
+    const marcas = await pool.request().query("SELECT ID_MARCA, NOMBRE_MARCA FROM CATALOGO_MARCAS WHERE ESTADO = 'Activo' ORDER BY NOMBRE_MARCA ASC");
+    
+    // Traemos todos los modelos activos
+    const modelos = await pool.request().query("SELECT ID_MODELO, ID_MARCA, NOMBRE_MODELO FROM CATALOGO_MODELOS WHERE ESTADO = 'Activo' ORDER BY NOMBRE_MODELO ASC");
+    
+    res.json({ 
+      success: true, 
+      marcas: marcas.recordset, 
+      modelos: modelos.recordset 
+    });
+  } catch (err) {
+    console.error("❌ Error al obtener catálogos:", err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+
+
 module.exports = router;
