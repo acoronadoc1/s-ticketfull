@@ -20,7 +20,13 @@ export default function Inventario() {
 
   const handleStock = async (id, cantidadActual, cambio) => {
     const nuevoStock = cantidadActual + cambio;
-    if (nuevoStock < 0) return; // No permitir stock negativo
+    
+    // 📢 ALERTA VISUAL: Avisa al usuario que ya no hay producto físico
+    if (nuevoStock < 0) {
+      alert("⚠️ Alerta de Inventario: No puede reducir las existencias de este repuesto por debajo de cero.");
+      return; 
+    }
+    
     try {
       await axios.put(`http://localhost:3000/api/inventario/stock/${id}`, { nuevoStock });
       cargarInventario();
@@ -29,9 +35,24 @@ export default function Inventario() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    await axios.post('http://localhost:3000/api/inventario', nuevo);
-    setNuevo({ NOMBRE_ITEM: '', STOCK_ACTUAL: '', PRECIO_COSTO: '', PRECIO_VENTA: '' });
-    cargarInventario();
+    
+    if (parseInt(nuevo.STOCK_ACTUAL) < 0) {
+      alert("❌ Error de registro: No se permite inicializar un repuesto con stock negativo.");
+      return;
+    }
+
+    try {
+      const response = await axios.post('http://localhost:3000/api/inventario', nuevo);
+      if (response.data.success) {
+        alert("✅ " + response.data.message);
+        setNuevo({ NOMBRE_ITEM: '', STOCK_ACTUAL: '', PRECIO_COSTO: '', PRECIO_VENTA: '' });
+        cargarInventario();
+      }
+    } catch (error) {
+      // 🌟 LEEMOS EL MENSAJE REAL ENVIADO DESDE EL BACKEND
+      const mensajeServidor = error.response?.data?.message || "Error inesperado al procesar el repuesto.";
+      alert("❌ " + mensajeServidor);
+    }
   };
 
   // Lógica del buscador
@@ -61,19 +82,14 @@ export default function Inventario() {
         </Paper>
 
         <Paper sx={{ p: 2, width: { xs: '100%', md: '300px' }, display: 'flex', alignItems: 'center' }}>
-          <TextField
-            fullWidth
-            placeholder="Buscar repuesto..."
-            variant="outlined"
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search />
-                </InputAdornment>
-              ),
-            }}
+          <TextField 
+            label="Stock" 
+            type="number" 
+            size="small" 
+            inputProps={{ min: 0 }} // 🛠️ FIX: Impide que usen las flechitas para bajar de cero
+            value={nuevo.STOCK_ACTUAL} 
+            onChange={(e)=>setNuevo({...nuevo, STOCK_ACTUAL:e.target.value})} 
+            required 
           />
         </Paper>
       </Box>
